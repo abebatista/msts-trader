@@ -10,6 +10,8 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+## [0.34.0] — 2026-09-28
+
 ### Added
 - **Studio: a local, open-source Composer-style strategy builder**
   (`pip install "msts-trader[ui]"`, then `msts-trader ui`). Build strategies
@@ -1403,7 +1405,8 @@ was folded into this release; no 0.3.1 was published to PyPI).
 - Credentials stored in the OS keychain (BYO Tastytrade OAuth app).
 - OIDC trusted publishing to PyPI on tag push.
 
-[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.33.1...HEAD
+[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.34.0...HEAD
+[0.34.0]: https://github.com/markudevelop/msts-trader/compare/v0.33.1...v0.34.0
 [0.33.1]: https://github.com/markudevelop/msts-trader/compare/v0.33.0...v0.33.1
 [0.33.0]: https://github.com/markudevelop/msts-trader/compare/v0.32.0...v0.33.0
 [0.32.0]: https://github.com/markudevelop/msts-trader/compare/v0.31.0...v0.32.0
