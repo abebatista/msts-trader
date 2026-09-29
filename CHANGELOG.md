@@ -10,6 +10,8 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+## [0.38.0] — 2026-09-29
+
 ### Added
 - **Studio: custom feeds from any URL.** Import → Custom feed turns any http(s)
   URL that serves target weights into a strategy. Weights can be
@@ -1474,7 +1476,8 @@ was folded into this release; no 0.3.1 was published to PyPI).
 - Credentials stored in the OS keychain (BYO Tastytrade OAuth app).
 - OIDC trusted publishing to PyPI on tag push.
 
-[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.37.0...HEAD
+[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.38.0...HEAD
+[0.38.0]: https://github.com/markudevelop/msts-trader/compare/v0.37.0...v0.38.0
 [0.37.0]: https://github.com/markudevelop/msts-trader/compare/v0.36.0...v0.37.0
 [0.36.0]: https://github.com/markudevelop/msts-trader/compare/v0.35.0...v0.36.0
 [0.35.0]: https://github.com/markudevelop/msts-trader/compare/v0.34.0...v0.35.0
