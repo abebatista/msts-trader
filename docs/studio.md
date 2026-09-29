@@ -76,6 +76,15 @@ drawdown are in **percent**, so `cumulative-return(SPY, 10) > 5` means +5%.
 A good backtest is not evidence of an edge. Treat the numbers as a
 description of the past, not a forecast.
 
+## Comparing strategies
+
+On the **Backtest** tab, pick other saved strategies under "Compare with".
+They run over their **common window**, starting from the latest warm-up
+among them, so every curve starts on the same day. You get the overlaid
+growth curves, a side-by-side metrics table with the best value in each
+column highlighted, drawdowns, and the correlation of daily returns. A
+correlation near 1 means two strategies are close to the same bet.
+
 ## Deploying
 
 Each strategy trades as its own **sleeve**. The strategy id is the sleeve
@@ -98,10 +107,33 @@ Everything the CLI enforces still applies: session hours, idempotency
 (identical targets once per day unless forced), margin-aware sizing,
 post-trade verify and self-heal, the negative-residual refusal, and so on.
 
+### Live performance (out-of-sample)
+
+Go-live is the strategy's first executed live run (paper counts). From then
+on the **Deploy** tab shows:
+
+- **Actual**: the sleeve's own value (cash + holdings) at every close.
+  Snapshots of the sleeve are recorded after each live run and each
+  invest/withdraw (`~/.msts-trader/sleeve_snapshots.jsonl`), so the history
+  is exact without anything running in the evening. Returns are
+  time-weighted: adding or withdrawing capital is not performance.
+- **Model**: the same strategy backtested over the same days.
+- **Gap**: actual minus model, i.e. what execution costs you (spread,
+  timing, rounding, missed days).
+- The benchmark (SPY), plus $ P&L against contributed capital.
+
+On the **Backtest** tab, the part of the curve after go-live is drawn as
+out-of-sample. The earlier part is in-sample, because the rules may have been
+shaped by that history.
+
 ### Scheduler
 
 While `msts-trader ui` is running, enabled strategies run at their
-schedule time (US/Eastern) on trading days. On half-days the run moves to
+schedule time on the **New York market clock** on trading days, whatever
+timezone the computer is in. For example, 15:50 ET is about 05:50 (AEST) or
+06:50–07:50 (AEDT) the next morning in Sydney, and both sides' daylight-saving
+changes are handled. The Deploy tab shows the next run in both ET and your
+local time. On half-days the run moves to
 10 minutes before the early close. Each strategy runs once per rebalance
 period, which is recorded in the run log, so restarts never double-run. If
 **Allow live orders** is off, a scheduled run is a dry-run preview.
