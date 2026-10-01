@@ -10,6 +10,8 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+## [0.39.1] — 2026-10-01
+
 ### Fixed
 - **Studio strategies failed with "sleeve … has its own sizing — drop
   --allocation"** when `~/.msts-trader/config.toml` set `allocation`. That
@@ -1518,7 +1520,8 @@ was folded into this release; no 0.3.1 was published to PyPI).
 - Credentials stored in the OS keychain (BYO Tastytrade OAuth app).
 - OIDC trusted publishing to PyPI on tag push.
 
-[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.39.0...HEAD
+[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.39.1...HEAD
+[0.39.1]: https://github.com/markudevelop/msts-trader/compare/v0.39.0...v0.39.1
 [0.39.0]: https://github.com/markudevelop/msts-trader/compare/v0.38.0...v0.39.0
 [0.38.0]: https://github.com/markudevelop/msts-trader/compare/v0.37.0...v0.38.0
 [0.37.0]: https://github.com/markudevelop/msts-trader/compare/v0.36.0...v0.37.0
