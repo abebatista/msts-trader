@@ -10,6 +10,8 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+## [0.41.0] — 2026-10-02
+
 ### Added
 - **Combined portfolio** on the Studio home page. Each funded strategy's latest
   target, times its capital, is summed by ticker: target $ and % of total, what
@@ -1588,7 +1590,8 @@ was folded into this release; no 0.3.1 was published to PyPI).
 - Credentials stored in the OS keychain (BYO Tastytrade OAuth app).
 - OIDC trusted publishing to PyPI on tag push.
 
-[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.40.2...HEAD
+[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.41.0...HEAD
+[0.41.0]: https://github.com/markudevelop/msts-trader/compare/v0.40.2...v0.41.0
 [0.40.2]: https://github.com/markudevelop/msts-trader/compare/v0.40.1...v0.40.2
 [0.40.1]: https://github.com/markudevelop/msts-trader/compare/v0.40.0...v0.40.1
 [0.40.0]: https://github.com/markudevelop/msts-trader/compare/v0.39.1...v0.40.0
