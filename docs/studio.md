@@ -202,6 +202,15 @@ local time. On half-days the run moves to
 period, which is recorded in the run log, so restarts never double-run. If
 **Allow live orders** is off, a scheduled run is a dry-run preview.
 
+**Order type** (Deploy tab) is **Market** by default: orders fill when the run
+executes. **Market-on-close** (Alpaca, IBKR, Schwab, paper) fills in the
+closing auction instead. Exchanges stop accepting MOC orders around 15:50 ET,
+so a MOC strategy runs no later than 15 minutes before the close (15:45 ET,
+12:45 on half-days) even if its schedule time is later. Studio always passes
+the strategy's own order type, so `moc = true` in `config.toml` doesn't affect
+Studio strategies. pnlportfolio books publish near 15:45 ET, so use Market for
+them.
+
 For unattended trading without the UI running, use cron or GitHub Actions:
 
 ```bash

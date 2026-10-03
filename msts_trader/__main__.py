@@ -1264,10 +1264,9 @@ def liquidate(
     help="Scale buys to fit buying power (weight-preserving). On by default; --no-margin-aware to disable.",
 )
 @click.option(
-    "--moc",
-    is_flag=True,
+    "--moc/--no-moc",
     default=None,
-    help="Submit market-on-close orders (fill in the closing auction). Alpaca / IBKR / Schwab / paper; whole shares; submit before ~15:50 ET.",
+    help="Submit market-on-close orders (fill in the closing auction). Alpaca / IBKR / Schwab / paper; whole shares; submit before ~15:50 ET. --no-moc overrides `moc = true` in the config file.",
 )
 @click.option(
     "--whole-shares",
@@ -1411,7 +1410,7 @@ def rebalance(
     tg_token = config.pick(None, cfg, "telegram_token")
     tg_chat = config.pick(None, cfg, "telegram_chat_id")
     margin_aware = bool(config.pick(margin_aware, cfg, "margin_aware", True))
-    moc = bool(config.pick(True if moc else None, cfg, "moc", False))
+    moc = bool(config.pick(moc, cfg, "moc", False))
     whole_shares = bool(config.pick(True if whole_shares else None, cfg, "whole_shares", False))
     quiet = bool(config.pick(True if quiet else None, cfg, "quiet", False))
 

@@ -10,7 +10,7 @@ import inspect
 
 import pytest
 
-from msts_trader.brokers import SUPPORTED, BrokerError, make
+from msts_trader.brokers import MOC_SUPPORTED, SUPPORTED, BrokerError, make
 
 
 REQUIRED_ATTRS = ("name", "supports_fractional", "supports_moc")
@@ -52,6 +52,8 @@ def test_moc_support_matrix():
     classes = _broker_classes()
     supported = {n for n, cls in classes.items() if cls.supports_moc}
     assert supported == {"alpaca", "ibkr", "schwab", "paper"}
+    # Studio reads MOC_SUPPORTED (no SDK imports) to offer the MOC order type.
+    assert set(MOC_SUPPORTED) == supported
 
 
 @pytest.mark.parametrize("name", SUPPORTED)
