@@ -9,6 +9,9 @@ from __future__ import annotations
 from .base import Balances, Broker, BrokerError, LinkedAccount, resolve_linked_account
 
 SUPPORTED = ("tastytrade", "alpaca", "tradier", "ibkr", "schwab", "hyperliquid", "paper")
+# Brokers whose adapter declares supports_moc — listed here so callers (Studio)
+# don't import every broker SDK to ask. test_brokers_protocol keeps it in sync.
+MOC_SUPPORTED = ("alpaca", "ibkr", "schwab", "paper")
 
 
 def make(name: str, **creds) -> Broker:
@@ -51,6 +54,7 @@ __all__ = [
     "BrokerError",
     "LinkedAccount",
     "make",
+    "MOC_SUPPORTED",
     "resolve_linked_account",
     "SUPPORTED",
 ]
