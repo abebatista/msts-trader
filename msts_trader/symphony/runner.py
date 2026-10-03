@@ -89,6 +89,9 @@ def rebalance_cmd(sym: Symphony, csv_path: str, *, mode: str, force: bool = Fals
         "--threshold-mode",
         "position",
         "--json",
+        # Explicit either way: a `moc = true` in config.toml must not turn a
+        # market strategy into MOC (and get it refused near the close).
+        "--moc" if d.order_type == "moc" else "--no-moc",
     ]
     if d.account:
         cmd += ["--account", d.account]

@@ -20,7 +20,7 @@ from datetime import date, datetime, timedelta
 
 from ..market_hours import ET, close_time_for, is_holiday, is_weekend
 from ..symphony import store  # runner (pandas & co.) is imported only to run
-from ..symphony.model import Symphony
+from ..symphony.model import MOC_LEAD_MINUTES, Symphony
 
 TICK_SECONDS = 20
 RETRY_AFTER = timedelta(minutes=10)  # after an error, don't hammer data/broker every tick
@@ -40,10 +40,15 @@ def period_key(d: date, cadence: str):
 
 
 def run_time(s: Symphony, d: date) -> datetime:
+    """When the strategy runs on day `d` (ET): its schedule time, but never
+    later than 10 min before the close (half-days), and — for market-on-close
+    strategies — never later than MOC_LEAD_MINUTES before it, because the
+    rebalance engine refuses MOC orders inside 12 min of the close."""
     hh, mm = (int(x) for x in s.deploy.schedule_time.split(":"))
     want = datetime(d.year, d.month, d.day, hh, mm, tzinfo=ET)
     close = datetime.combine(d, close_time_for(d), tzinfo=ET)
-    return min(want, close - timedelta(minutes=10))
+    lead = MOC_LEAD_MINUTES if s.deploy.order_type == "moc" else 10
+    return min(want, close - timedelta(minutes=lead))
 
 
 def last_scheduled_period(s: Symphony) -> str | None:

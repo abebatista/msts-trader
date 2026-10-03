@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import { CashModal } from "./Home";
-import type { Deploy, Meta, OosResult, OsSchedule, RunEntry, SchedulerState, SleeveLedger, Strategy } from "../types";
+import type { Deploy, Meta, OosResult, OrderType, OsSchedule, RunEntry, SchedulerState, SleeveLedger, Strategy } from "../types";
 import { LineChart, cssColor, type Series } from "./Chart";
 import { NumInput } from "./Editor";
 
@@ -73,6 +73,14 @@ export function DeployPanel({ draft, saved, dirty, meta, onDeploy, onSave }: Pro
 
   const isPaper = saved.deploy.broker === "paper";
   const liveReady = saved.deploy.live_enabled && !dirty;
+  const mocBrokers = meta?.moc_brokers ?? ["alpaca", "ibkr", "schwab", "paper"];
+  const mocOk = mocBrokers.includes(d.broker);
+  const orderType: OrderType = d.order_type ?? "market";
+  // Latest scheduled start for MOC on a regular 16:00 ET close.
+  const mocLatest = useMemo(() => {
+    const m = 16 * 60 - (meta?.moc_lead_minutes ?? 15);
+    return `${String(Math.floor(m / 60)).padStart(2, "0")}:${String(m % 60).padStart(2, "0")}`;
+  }, [meta?.moc_lead_minutes]);
 
   return (
     <div className="deploy-grid">
@@ -82,7 +90,14 @@ export function DeployPanel({ draft, saved, dirty, meta, onDeploy, onSave }: Pro
           <div className="form-grid">
             <label>
               Broker
-              <select value={d.broker} onChange={(e) => set({ broker: e.target.value, live_enabled: false })}>
+              <select
+                value={d.broker}
+                onChange={(e) => {
+                  const broker = e.target.value;
+                  // A broker without MOC can't keep a MOC order type.
+                  set({ broker, live_enabled: false, ...(mocBrokers.includes(broker) ? {} : { order_type: "market" }) });
+                }}
+              >
                 {(meta?.brokers ?? ["paper"]).map((b) => (
                   <option key={b} value={b}>
                     {b}
@@ -100,6 +115,20 @@ export function DeployPanel({ draft, saved, dirty, meta, onDeploy, onSave }: Pro
                 <NumInput value={Math.round(d.threshold * 10000) / 100} onChange={(v) => set({ threshold: v / 100 })} min={0} max={100} step={0.5} />% of each position
               </span>
             </label>
+            <label>
+              Order type
+              <select value={orderType} onChange={(e) => set({ order_type: e.target.value as OrderType })}>
+                <option value="market">Market (fills when the run executes)</option>
+                <option value="moc" disabled={!mocOk}>
+                  Market-on-close (fills in the closing auction){mocOk ? "" : ` (not supported on ${d.broker})`}
+                </option>
+              </select>
+              <span className="muted small">
+                {orderType === "moc"
+                  ? `Exchanges stop accepting MOC orders around 15:50 ET, so scheduled runs start no later than ${mocLatest} ET (earlier on half-days). Whole shares only.`
+                  : "Recommended for scheduled runs near the close."}
+              </span>
+            </label>
             <label className="check">
               <input type="checkbox" checked={d.schedule_enabled} onChange={(e) => set({ schedule_enabled: e.target.checked })} />
               Run automatically at
@@ -110,6 +139,12 @@ export function DeployPanel({ draft, saved, dirty, meta, onDeploy, onSave }: Pro
                 = {etToLocal(d.schedule_time)} your time
               </span>
             </label>
+            {d.schedule_enabled && orderType === "moc" && d.schedule_time > mocLatest && (
+              <div className="alert warn small">
+                Market-on-close: this strategy will run at {mocLatest} ET instead of {d.schedule_time}, the latest time MOC orders are still
+                accepted with margin. Pick Market to keep {d.schedule_time}.
+              </div>
+            )}
           </div>
           <div className={`live-toggle ${d.live_enabled ? "on" : ""}`}>
             <label className="check">

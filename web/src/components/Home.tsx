@@ -20,6 +20,12 @@ function schedule(r: DashRow) {
   return (
     <span>
       ⏱ {r.deploy.schedule_time} ET <span className="muted">· {r.rebalance}</span>
+      {r.deploy.order_type === "moc" && (
+        <span className="muted" title="market-on-close orders (fill in the closing auction)">
+          {" "}
+          · MOC
+        </span>
+      )}
     </span>
   );
 }

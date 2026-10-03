@@ -85,6 +85,8 @@ export interface FeedNode extends Base {
 export type Node = AssetNode | GroupNode | EqualNode | SpecifiedNode | InvVolNode | IfNode | FilterNode | FeedNode;
 export type Step = Node["step"];
 
+export type OrderType = "market" | "moc";
+
 export interface Deploy {
   broker: string;
   account: string | null;
@@ -92,6 +94,7 @@ export interface Deploy {
   schedule_enabled: boolean;
   schedule_time: string;
   threshold: number;
+  order_type: OrderType;
 }
 
 export interface Strategy {
@@ -116,6 +119,8 @@ export interface StrategySummary {
 export interface Meta {
   version: string;
   brokers: string[];
+  moc_brokers?: string[];
+  moc_lead_minutes?: number;
   indicators: IndicatorFn[];
   market: { status: string; minutes_to_close: number | null };
 }

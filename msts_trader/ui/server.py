@@ -28,11 +28,11 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from .. import __version__
-from ..brokers import SUPPORTED
+from ..brokers import MOC_SUPPORTED, SUPPORTED
 from ..market_hours import market_status
 from ..symphony import backtest, composer_import, feeds, performance, prices, runner, store, studio_meta
 from ..symphony.evaluate import EvalError
-from ..symphony.model import INDICATORS, Feed, Symphony, combine, slugify, tickers
+from ..symphony.model import INDICATORS, MOC_LEAD_MINUTES, Feed, Symphony, combine, slugify, tickers
 
 STATIC_DIR = Path(__file__).parent / "static"
 TOKEN_HEADER = "x-msts-token"
@@ -114,6 +114,8 @@ def create_app(token: str, *, allowed_origins: set[str] | None = None, static_di
         return {
             "version": __version__,
             "brokers": list(SUPPORTED),
+            "moc_brokers": list(MOC_SUPPORTED),
+            "moc_lead_minutes": MOC_LEAD_MINUTES,
             "indicators": list(INDICATORS),
             "market": {"status": ms.status, "minutes_to_close": ms.minutes_to_close},
         }

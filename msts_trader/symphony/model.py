@@ -40,6 +40,10 @@ IndicatorFn = Literal[
 ]
 Comparator = Literal["gt", "gte", "lt", "lte"]
 Rebalance = Literal["daily", "weekly", "monthly", "quarterly", "yearly"]
+OrderType = Literal["market", "moc"]
+# The rebalance CLI refuses MOC with < 12 min to the close; a scheduled MOC run
+# starts this many minutes before the close so evaluation has time to finish.
+MOC_LEAD_MINUTES = 15
 
 # Same rule as `rebalance --sleeve`: the strategy id doubles as its sleeve name.
 ID_RE = re.compile(r"[A-Za-z0-9_-]{1,40}")
@@ -269,6 +273,12 @@ class Deploy(_Base):
     schedule_time: str = "15:50"  # US/Eastern, HH:MM
     # Drift threshold passed to `rebalance --threshold` (fraction of position).
     threshold: float = Field(default=0.02, ge=0, le=1)
+    # "market" fills now; "moc" (market-on-close) fills in the closing auction.
+    # Always passed explicitly to `rebalance` (--moc / --no-moc), so a
+    # `moc = true` in config.toml never silently changes a strategy's orders.
+    # Exchanges stop taking MOC ~15:50 ET, so MOC scheduled runs are pulled to
+    # MOC_LEAD_MINUTES before the close (see ui/scheduler.run_time).
+    order_type: OrderType = "market"
 
     @field_validator("schedule_time")
     @classmethod
@@ -276,6 +286,16 @@ class Deploy(_Base):
         if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", v):
             raise ValueError("schedule_time must be HH:MM (24h, US/Eastern)")
         return v
+
+    @model_validator(mode="after")
+    def _moc_broker(self) -> "Deploy":
+        from ..brokers import MOC_SUPPORTED  # registry only — no broker SDK imports
+
+        if self.order_type == "moc" and self.broker not in MOC_SUPPORTED:
+            raise ValueError(
+                f"{self.broker} has no market-on-close order type (MOC works on: {', '.join(MOC_SUPPORTED)}) — use market"
+            )
+        return self
 
 
 class Symphony(_Base):

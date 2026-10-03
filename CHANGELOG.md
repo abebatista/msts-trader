@@ -10,6 +10,21 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+### Added
+- **Order type per strategy** in Studio → Deploy: **Market** (default) or
+  **Market-on-close** (Alpaca / IBKR / Schwab / paper). The Home schedule
+  column marks MOC strategies. MOC on a broker without it is rejected at save.
+- `rebalance --no-moc` overrides `moc = true` in the config file.
+
+### Fixed
+- Scheduled Studio runs at the default 15:50 ET failed with "only 9 min to the
+  close — exchanges stop accepting MOC orders" when `config.toml` had
+  `moc = true`: strategies silently inherited it and `--moc` had no negative
+  form. Studio now always passes the strategy's own order type
+  (`--moc` / `--no-moc`), and MOC strategies are scheduled no later than
+  15 minutes before the close (15:45 ET; 12:45 on half-days) so the order
+  reaches the exchange before its cutoff.
+
 ## [0.41.0] — 2026-10-02
 
 ### Added
