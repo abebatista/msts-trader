@@ -10,6 +10,8 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+## [0.43.1] — 2026-10-07
+
 ### Fixed
 - Studio: `whole_shares = true` or `min_weight` in `~/.msts-trader/config.toml`
   no longer leak into strategy runs. They kept small targets from ever being
@@ -1636,7 +1638,8 @@ was folded into this release; no 0.3.1 was published to PyPI).
 - Credentials stored in the OS keychain (BYO Tastytrade OAuth app).
 - OIDC trusted publishing to PyPI on tag push.
 
-[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.43.0...HEAD
+[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.43.1...HEAD
+[0.43.1]: https://github.com/markudevelop/msts-trader/compare/v0.43.0...v0.43.1
 [0.43.0]: https://github.com/markudevelop/msts-trader/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/markudevelop/msts-trader/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/markudevelop/msts-trader/compare/v0.40.2...v0.41.0
