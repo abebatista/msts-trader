@@ -10,6 +10,18 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+## [0.43.0] — 2026-10-07
+
+### Added
+- Studio Home: funded rows show **live (out-of-sample) stats** next to the
+  backtest ones: the OOS start date, CAGR, max drawdown and Sharpe of the
+  sleeve's time-weighted index since go-live. Computed offline from cached
+  closes; under 30 days live it shows the total return instead of annualised
+  numbers.
+- Studio Home: market-on-close rows flag targets worth less than one whole
+  share (*N < 1 share*). They round to 0 and are never bought, which is the
+  usual reason **Held** is below **target**.
+
 ## [0.42.0] — 2026-10-03
 
 ### Added
@@ -1607,7 +1619,8 @@ was folded into this release; no 0.3.1 was published to PyPI).
 - Credentials stored in the OS keychain (BYO Tastytrade OAuth app).
 - OIDC trusted publishing to PyPI on tag push.
 
-[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.42.0...HEAD
+[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.43.0...HEAD
+[0.43.0]: https://github.com/markudevelop/msts-trader/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/markudevelop/msts-trader/compare/v0.41.0...v0.42.0
 [0.41.0]: https://github.com/markudevelop/msts-trader/compare/v0.40.2...v0.41.0
 [0.40.2]: https://github.com/markudevelop/msts-trader/compare/v0.40.1...v0.40.2
