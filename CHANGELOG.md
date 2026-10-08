@@ -10,6 +10,8 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+## [0.45.1] — 2026-10-08
+
 ### Fixed
 - Studio Home: **Value** no longer shows the sleeve's cash alone (e.g. "$-404"
   for a slightly levered book) when a holding has no cached price. It shows
@@ -1708,7 +1710,8 @@ was folded into this release; no 0.3.1 was published to PyPI).
 - Credentials stored in the OS keychain (BYO Tastytrade OAuth app).
 - OIDC trusted publishing to PyPI on tag push.
 
-[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.45.0...HEAD
+[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.45.1...HEAD
+[0.45.1]: https://github.com/markudevelop/msts-trader/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/markudevelop/msts-trader/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/markudevelop/msts-trader/compare/v0.43.1...v0.44.0
 [0.43.1]: https://github.com/markudevelop/msts-trader/compare/v0.43.0...v0.43.1
