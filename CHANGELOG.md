@@ -10,6 +10,26 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+## [0.44.0] — 2026-10-08
+
+### Added
+- Studio Home: **Live** and **Incubation** tabs replace **Funded**. Live is
+  real money at a broker. Incubation is paper, a paper / sandbox account, or
+  preview-only, so dozens of paper strategies don't crowd the live ones. Each
+  has its own combined portfolio.
+- Studio Home: pin any tag as a tab (**+**, unpin with **×**), e.g. *Options*,
+  *Active strategies*, *Passive weights*. Pinned tabs are saved in
+  `studio_settings.json` (`home_tabs`).
+- Deploy: *This is a paper / sandbox account* for a real broker's test account
+  (`deploy.paper_account`), which lists it under Incubation.
+
+### Changed
+- Studio: paper strategies that place orders show a **paper** pill; **live** now
+  means real money. The sidebar pins only Live strategies. The Home stats
+  group is renamed *Out-of-sample*.
+- `/api/dashboard` returns `rollups: {live, incubation}` and a `stage` per row,
+  instead of a single `rollup`.
+
 ## [0.43.1] — 2026-10-07
 
 ### Fixed
@@ -1638,7 +1658,8 @@ was folded into this release; no 0.3.1 was published to PyPI).
 - Credentials stored in the OS keychain (BYO Tastytrade OAuth app).
 - OIDC trusted publishing to PyPI on tag push.
 
-[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.43.1...HEAD
+[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.44.0...HEAD
+[0.44.0]: https://github.com/markudevelop/msts-trader/compare/v0.43.1...v0.44.0
 [0.43.1]: https://github.com/markudevelop/msts-trader/compare/v0.43.0...v0.43.1
 [0.43.0]: https://github.com/markudevelop/msts-trader/compare/v0.42.0...v0.43.0
 [0.42.0]: https://github.com/markudevelop/msts-trader/compare/v0.41.0...v0.42.0
