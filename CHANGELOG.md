@@ -10,6 +10,8 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+## [0.45.0] — 2026-10-08
+
 ### Added
 - Studio: **Limit chase** order type on the Deploy tab, for every broker.
   Each order is a limit at the mid, repriced a few times, then a market
@@ -1696,7 +1698,8 @@ was folded into this release; no 0.3.1 was published to PyPI).
 - Credentials stored in the OS keychain (BYO Tastytrade OAuth app).
 - OIDC trusted publishing to PyPI on tag push.
 
-[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.44.0...HEAD
+[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.45.0...HEAD
+[0.45.0]: https://github.com/markudevelop/msts-trader/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/markudevelop/msts-trader/compare/v0.43.1...v0.44.0
 [0.43.1]: https://github.com/markudevelop/msts-trader/compare/v0.43.0...v0.43.1
 [0.43.0]: https://github.com/markudevelop/msts-trader/compare/v0.42.0...v0.43.0
