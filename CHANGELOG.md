@@ -10,6 +10,32 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+## [0.46.0] — 2026-10-11
+
+### Added
+- Threshold ("corridor") rebalancing, as Composer does it: **when off by X%**
+  next to Rebalance on the Build tab. A check trades only once some holding is
+  X percentage points of the book off target, then puts every holding back on
+  target. Honored by the backtest and by live runs. Composer imports with
+  `:rebalance :none` now carry their corridor width instead of falling back
+  to daily.
+
+### Fixed
+- Importing a deeply nested Composer strategy (a long else-if chain) no
+  longer fails with a 500 "Circular reference detected" when it is saved.
+- Studio: Delete, Tag/Untag, "Discard unsaved changes?" and the share-tally
+  confirmation use an in-page dialog. Browsers that suppress native dialogs
+  (embedded browsers, "prevent additional dialogs") made them silently do
+  nothing.
+- Windows: price downloads (yfinance) and broker SDKs on `requests` now trust
+  the Windows certificate store, as `urllib` already did. With antivirus
+  HTTPS scanning (Avast/AVG Web Shield, Kaspersky, ESET) or a corporate proxy
+  they failed certificate checks, which yfinance reported as "no price data
+  ... possibly delisted". A CA bundle you set yourself (`SSL_CERT_FILE`,
+  `REQUESTS_CA_BUNDLE`, `CURL_CA_BUNDLE`) is still used as is.
+- Feed errors caused by a rejected HTTPS certificate now name the usual local
+  causes: system clock, antivirus HTTPS scanning, or an out-of-date CA bundle.
+
 ## [0.45.1] — 2026-10-08
 
 ### Fixed
@@ -1710,7 +1736,8 @@ was folded into this release; no 0.3.1 was published to PyPI).
 - Credentials stored in the OS keychain (BYO Tastytrade OAuth app).
 - OIDC trusted publishing to PyPI on tag push.
 
-[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.45.1...HEAD
+[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.46.0...HEAD
+[0.46.0]: https://github.com/markudevelop/msts-trader/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/markudevelop/msts-trader/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/markudevelop/msts-trader/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/markudevelop/msts-trader/compare/v0.43.1...v0.44.0
