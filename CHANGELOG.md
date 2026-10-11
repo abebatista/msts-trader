@@ -10,6 +10,8 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+## [0.46.0] — 2026-10-11
+
 ### Added
 - Threshold ("corridor") rebalancing, as Composer does it: **when off by X%**
   next to Rebalance on the Build tab. A check trades only once some holding is
@@ -1734,7 +1736,8 @@ was folded into this release; no 0.3.1 was published to PyPI).
 - Credentials stored in the OS keychain (BYO Tastytrade OAuth app).
 - OIDC trusted publishing to PyPI on tag push.
 
-[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.45.1...HEAD
+[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.46.0...HEAD
+[0.46.0]: https://github.com/markudevelop/msts-trader/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/markudevelop/msts-trader/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/markudevelop/msts-trader/compare/v0.44.0...v0.45.0
 [0.44.0]: https://github.com/markudevelop/msts-trader/compare/v0.43.1...v0.44.0
