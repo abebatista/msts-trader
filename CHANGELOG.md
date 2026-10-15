@@ -10,6 +10,17 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+## [0.46.1] — 2026-10-15
+
+### Fixed
+- Studio: live, paper and scheduled runs of deeply nested strategies (e.g.
+  Borg-style symphonies) no longer fail with "moving-average-price(SPY, 200d)
+  has insufficient history on <a past date>" while their backtests pass. A
+  filter or inverse-vol block that ranks groups replays each group over its
+  trailing window, and every replayed day needs the group's own history, so
+  the warm-up a live run loads now adds those lookbacks up instead of taking
+  the largest one. Strategies that already ran are unchanged.
+
 ## [0.46.0] — 2026-10-11
 
 ### Added
@@ -1736,7 +1747,8 @@ was folded into this release; no 0.3.1 was published to PyPI).
 - Credentials stored in the OS keychain (BYO Tastytrade OAuth app).
 - OIDC trusted publishing to PyPI on tag push.
 
-[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.46.0...HEAD
+[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.46.1...HEAD
+[0.46.1]: https://github.com/markudevelop/msts-trader/compare/v0.46.0...v0.46.1
 [0.46.0]: https://github.com/markudevelop/msts-trader/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/markudevelop/msts-trader/compare/v0.45.0...v0.45.1
 [0.45.0]: https://github.com/markudevelop/msts-trader/compare/v0.44.0...v0.45.0
