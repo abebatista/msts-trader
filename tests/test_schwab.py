@@ -338,3 +338,81 @@ def test_balances_zero_values_do_not_fall_through():
     assert bal.nav == Decimal("0")
     assert bal.cash == Decimal("0")
     assert bal.buying_power == Decimal("0")
+
+
+def test_schwab_init_falls_back_to_manual_flow_when_no_browser(tmp_path, monkeypatch):
+    import webbrowser
+
+    monkeypatch.setattr(schwab_mod.keychain, "load_secret", lambda name: None)
+    monkeypatch.setattr(schwab_mod.keychain, "save_secret", lambda name, value: None)
+    monkeypatch.setattr(schwab_mod, "TOKEN_PATH", tmp_path / "schwab_token.json")
+
+    called = {"login": 0, "manual": 0}
+
+    class _Client:
+        def get_account_numbers(self):
+            return _Resp([{"hashValue": "HASH_MANUAL"}])
+
+    def fake_login_flow(**kwargs):
+        called["login"] += 1
+        raise webbrowser.Error("could not locate runnable browser")
+
+    def fake_manual_flow(**kwargs):
+        called["manual"] += 1
+        return _Client()
+
+    monkeypatch.setattr(schwab_mod, "client_from_login_flow", fake_login_flow)
+    monkeypatch.setattr(schwab_mod, "client_from_manual_flow", fake_manual_flow)
+
+    b = Schwab("app-key", "app-secret")
+    assert b.account_hash == "HASH_MANUAL"
+    assert called == {"login": 1, "manual": 1}
+
+    # Explicit manual=True skips client_from_login_flow altogether
+    b2 = Schwab("app-key", "app-secret", manual=True)
+    assert b2.account_hash == "HASH_MANUAL"
+    assert called == {"login": 1, "manual": 2}
+
+
+def test_schwab_web_auth_helpers_and_token_status(tmp_path, monkeypatch):
+    import time
+
+    store: dict[str, str] = {}
+    monkeypatch.setattr(schwab_mod.keychain, "load_secret", lambda name: store.get(name))
+    monkeypatch.setattr(schwab_mod.keychain, "save_secret", lambda name, value: store.__setitem__(name, value))
+    monkeypatch.setattr(schwab_mod.keychain, "load", lambda broker: {"app_key": "ak", "app_secret": "as"})
+    monkeypatch.setattr(schwab_mod, "TOKEN_PATH", tmp_path / "schwab_token.json")
+
+    st0 = schwab_mod.token_status()
+    assert st0["has_creds"] is True and st0["has_token"] is False
+
+    ctx = schwab_mod.start_web_auth("ak", "https://127.0.0.1:8182")
+    assert "api.schwabapi.com" in ctx["authorization_url"] and ctx["state"]
+
+    class _Client:
+        def token_age(self):
+            return 10
+
+        def get_account_numbers(self):
+            return _Resp([{"hashValue": "HASH_WEB", "accountNumber": "12345678"}])
+
+    def fake_from_received_url(api_key, app_secret, auth_context, received_url, token_write_func, enforce_enums=True):
+        assert api_key == "ak" and app_secret == "as"
+        assert auth_context.state == ctx["state"]
+        assert "code=ABC" in received_url
+        token_write_func({"creation_timestamp": int(time.time()), "token": {"access_token": "A", "refresh_token": "R"}})
+        return _Client()
+
+    monkeypatch.setattr(schwab_mod, "client_from_received_url", fake_from_received_url)
+    monkeypatch.setattr(schwab_mod, "client_from_access_functions", lambda *a, **k: _Client())
+
+    b = schwab_mod.complete_web_auth(
+        app_key="ak",
+        app_secret="as",
+        callback_url=ctx["callback_url"],
+        state=ctx["state"],
+        received_url="https://127.0.0.1:8182/?code=ABC&session=XYZ",
+    )
+    assert b.account_hash == "HASH_WEB"
+    st1 = schwab_mod.token_status()
+    assert st1["has_token"] is True and st1["expired"] is False and (st1["expires_in_seconds"] or 0) > 500000

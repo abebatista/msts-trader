@@ -474,3 +474,94 @@ def test_api_combine_then_compare_and_save(client):
     assert saved["id"] == "my-blend" and store.get("my-blend").children[0].step == "wt-cash-specified"
     bad = client.post("/api/combine", json={"strategies": [a, b], "weights": [1.0]}, headers=H())
     assert bad.status_code == 422
+
+
+def test_remote_origin_and_same_host_matching(monkeypatch):
+    monkeypatch.setenv("MSTS_UI_ORIGIN", "https://studio.example.com/")
+    remote = TestClient(create_app(TOKEN, allowed_origins={ORIGIN}, allow_same_host_origin=True))
+    # Explicitly configured MSTS_UI_ORIGIN is accepted
+    assert remote.get("/api/meta", headers=H(Origin="https://studio.example.com")).status_code == 200
+    # Same-host origin matching (e.g. VPS IP or reverse-proxy Host header) is accepted
+    assert (
+        remote.get("/api/meta", headers=H(Origin="http://203.0.113.10:8765", Host="203.0.113.10:8765")).status_code
+        == 200
+    )
+    # Cross-origin where Origin != Host is still refused with 403
+    assert (
+        remote.post(
+            "/api/strategies",
+            json={"name": "x"},
+            headers=H(Origin="https://evil.example", Host="203.0.113.10:8765"),
+        ).status_code
+        == 403
+    )
+
+
+def test_api_schwab_web_oauth_flow(client, monkeypatch):
+    from decimal import Decimal
+    from msts_trader import keychain
+    from msts_trader.brokers import schwab as schwab_mod
+    from msts_trader.brokers.base import Balances
+
+    vault: dict[str, str] = {}
+    monkeypatch.setattr(keychain, "_set_raw", lambda k, v: vault.__setitem__(k, v))
+    monkeypatch.setattr(keychain, "_get_raw", lambda k: vault.get(k))
+    monkeypatch.setattr(keychain, "_delete_raw", lambda k: vault.pop(k, None))
+
+    st = client.get("/api/brokers/schwab", headers=H()).json()
+    assert st["has_token"] is False
+
+    # Missing creds refused with 422
+    assert client.post("/api/brokers/schwab/auth/start", json={}, headers=H()).status_code == 422
+    # Completing before starting refused with 422
+    assert (
+        client.post(
+            "/api/brokers/schwab/auth/complete",
+            json={"redirect_url": "https://127.0.0.1:8182/?code=123"},
+            headers=H(),
+        ).status_code
+        == 422
+    )
+
+    monkeypatch.setattr(
+        schwab_mod,
+        "start_web_auth",
+        lambda key, cb: {
+            "callback_url": cb,
+            "authorization_url": "https://api.schwabapi.com/v1/oauth/authorize?state=S1",
+            "state": "S1",
+        },
+    )
+
+    class _FakeSchwab:
+        account_id = "…5678"
+        account_hash = "HASH5678"
+
+        def balances(self):
+            return Balances(nav=Decimal("25000"), cash=Decimal("5000"), buying_power=Decimal("25000"))
+
+    def fake_complete(*, app_key, app_secret, callback_url, state, received_url, account_hash=None):
+        assert app_key == "my-key" and app_secret == "my-secret" and state == "S1"
+        assert "code=OK" in received_url
+        keychain.save_secret(schwab_mod.TOKEN_KEY, '{"creation_timestamp": 1700000000, "token": {"access_token": "A"}}')
+        return _FakeSchwab()
+
+    monkeypatch.setattr(schwab_mod, "complete_web_auth", fake_complete)
+
+    started = client.post(
+        "/api/brokers/schwab/auth/start",
+        json={"app_key": "my-key", "app_secret": "my-secret", "callback_url": "https://127.0.0.1:8182"},
+        headers=H(),
+    )
+    assert started.status_code == 200
+    assert "api.schwabapi.com" in started.json()["authorization_url"]
+
+    done = client.post(
+        "/api/brokers/schwab/auth/complete",
+        json={"redirect_url": "https://127.0.0.1:8182/?code=OK&session=S"},
+        headers=H(),
+    )
+    assert done.status_code == 200, done.text
+    body = done.json()
+    assert body["ok"] is True and body["account_id"] == "…5678" and body["has_token"] is True
+    assert keychain.load("schwab")["account_hash"] == "HASH5678"

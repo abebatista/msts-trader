@@ -533,6 +533,9 @@ def main(ctx: click.Context, broker: str | None) -> None:
         ctx.invoke(rebalance)
 
 
+_LOGIN_MANUAL: bool = False
+
+
 @main.command()
 @_BROKER_OPT
 @click.option(
@@ -548,6 +551,12 @@ def main(ctx: click.Context, broker: str | None) -> None:
     "the browser authorization so the 7-day refresh token restarts — run this on "
     "a weekend to guarantee auth through the trading week.",
 )
+@click.option(
+    "--manual",
+    is_flag=True,
+    help="Schwab headless/VPS login: print the OAuth URL and prompt for the redirect URL "
+    "copied from any browser instead of opening a local browser.",
+)
 @_ACCOUNT_OPT
 @click.pass_context
 def login(
@@ -555,6 +564,7 @@ def login(
     broker_opt: str | None,
     creds_file: str | None,
     reauth: bool,
+    manual: bool,
     account_sel: str | None,
 ) -> None:
     """Store broker creds in OS keychain.
@@ -563,7 +573,7 @@ def login(
     to set the default book. Interactively, login lists linked accounts and
     prompts when more than one is available and none was preselected.
     """
-    global _LOGIN_ACCOUNT_SEL
+    global _LOGIN_ACCOUNT_SEL, _LOGIN_MANUAL
     if creds_file:
         _load_creds_file_or_exit(creds_file)
 
@@ -588,10 +598,12 @@ def login(
         else:
             c.print("[dim]no cached Schwab token — the browser flow runs anyway.[/dim]")
     _LOGIN_ACCOUNT_SEL = account_sel
+    _LOGIN_MANUAL = manual
     try:
         flow()
     finally:
         _LOGIN_ACCOUNT_SEL = None
+        _LOGIN_MANUAL = False
 
 
 def _login_tastytrade() -> None:
@@ -787,13 +799,15 @@ def _login_schwab() -> None:
     )
 
     try:
-        b = make(
-            "schwab",
+        kwargs = dict(
             app_key=app_key,
             app_secret=app_secret,
             callback_url=callback_url,
             account_hash=account_sel,
         )
+        if _LOGIN_MANUAL:
+            kwargs["manual"] = True
+        b = make("schwab", **kwargs)
         chosen_hash = _finalize_login_account(b, preselected=account_sel)
         bal = b.balances()
     except Exception as e:
@@ -3676,20 +3690,56 @@ def strategy_import(path: str, sid) -> None:
 
 
 @main.command()
-@click.option("--port", type=int, default=8765, show_default=True)
+@click.option(
+    "--host",
+    default="127.0.0.1",
+    envvar="MSTS_UI_HOST",
+    show_default=True,
+    help="Bind address (use 0.0.0.0 for Docker / VPS / Tailscale; put an HTTPS reverse proxy in front on the public internet).",
+)
+@click.option("--port", type=int, default=8765, envvar="MSTS_UI_PORT", show_default=True)
+@click.option(
+    "--token",
+    default=None,
+    envvar="MSTS_UI_TOKEN",
+    help="Fixed access token (≥16 chars) so VPS / container restarts keep the same token. Default: random per process.",
+)
+@click.option(
+    "--origin",
+    "origins",
+    multiple=True,
+    help="Additional allowed Origin URL(s) when behind a reverse proxy (e.g. https://studio.example.com).",
+)
 @click.option("--no-browser", is_flag=True, help="Don't open a browser tab.")
 @click.option("--no-scheduler", is_flag=True, help="Don't run scheduled strategies while the UI is up.")
-def ui(port: int, no_browser: bool, no_scheduler: bool) -> None:
-    """Local web UI: build, backtest and deploy Composer-style strategies.
+def ui(
+    host: str,
+    port: int,
+    token: str | None,
+    origins: tuple[str, ...],
+    no_browser: bool,
+    no_scheduler: bool,
+) -> None:
+    """Local or VPS web UI: build, backtest and deploy Composer-style strategies.
 
-    Binds to 127.0.0.1 only; every API call needs the session token printed
-    in the URL, so other web pages can't drive it.
+    Binds to 127.0.0.1 by default (or --host 0.0.0.0 for Docker / VPS); every
+    API call needs the session token printed at startup (or passed via --token).
     """
     try:
         from .ui import server
     except ImportError as e:
         _fail(f'the UI needs the ui extra: pip install "msts-trader[ui]" ({e})')
-    server.serve(port=port, open_browser=not no_browser, scheduler=not no_scheduler)
+    try:
+        server.serve(
+            host=host,
+            port=port,
+            open_browser=not no_browser,
+            scheduler=not no_scheduler,
+            token=token,
+            origins=origins,
+        )
+    except ValueError as e:
+        _fail(str(e))
 
 
 if __name__ == "__main__":

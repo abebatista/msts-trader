@@ -286,6 +286,14 @@ delete the original `--creds-file`; future `login --broker schwab --reauth`
 runs reuse those stored app credentials and only refresh the Schwab OAuth
 token.
 
+**Headless VPS / Docker (no local browser):** pass `--manual` (or set `MSTS_SCHWAB_MANUAL=1`):
+
+```bash
+msts-trader login --broker schwab --reauth --manual
+```
+
+`msts-trader` prints the Schwab authorization link without opening a browser. Open that link in your normal desktop/phone browser, approve, and paste the full `https://127.0.0.1:8182/?code=…` redirect URL from your browser's address bar back into the terminal prompt. In `msts-trader ui`, you can also do this directly in the browser under **⚙ Notifications & Auth → Schwab OAuth (7-day token)** — see [docs/studio.md](docs/studio.md#refreshing-the-7-day-schwab-oauth-token-on-a-headless-vps).
+
 **Multiple linked Schwab accounts under one OAuth login:** first-time
 `login` lists linked books and lets you pick a default (stored as
 `account_hash` in the keychain). Change it later with

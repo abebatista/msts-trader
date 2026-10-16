@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { api, ApiError, hasToken } from "./api";
+import { api, ApiError, hasToken, setToken } from "./api";
 import { TEMPLATES, treeTickers } from "./blocks";
 import { BacktestPanel } from "./components/Backtest";
 import { confirmDialog } from "./components/Dialog";
@@ -26,6 +26,9 @@ export default function App() {
   const [saved, setSaved] = useState<Strategy | null>(null);
   const [draft, setDraft] = useState<Strategy | null>(null);
   const [fatal, setFatal] = useState<string | null>(null);
+  const [needToken, setNeedToken] = useState(false);
+  const [tokenInput, setTokenInput] = useState("");
+  const [authEpoch, setAuthEpoch] = useState(0);
   const [err, setErr] = useState<string | null>(null);
   const [modal, setModal] = useState<"new" | "import" | "settings" | null>(null);
   const [saving, setSaving] = useState(false);
@@ -94,15 +97,20 @@ export default function App() {
 
   useEffect(() => {
     if (!hasToken()) {
-      setFatal("Open Studio from the link printed by `msts-trader ui`. It carries this session's access token.");
+      setNeedToken(true);
+      setFatal("Open Studio from the link printed by `msts-trader ui`, or paste your Studio access token below.");
       return;
     }
-    Promise.all([api<Meta>("/meta").then(setMeta), loadList()]).catch((e) =>
-      setFatal(e instanceof ApiError && e.status === 401 ? "Session token rejected. Reopen the link printed by `msts-trader ui`." : e.message),
-    );
+    setFatal(null);
+    setNeedToken(false);
+    Promise.all([api<Meta>("/meta").then(setMeta), loadList()]).catch((e) => {
+      const is401 = e instanceof ApiError && e.status === 401;
+      setNeedToken(is401);
+      setFatal(is401 ? "Session token rejected. Reopen the link printed by `msts-trader ui`, or enter the current access token below." : e.message);
+    });
     const t = setInterval(() => api<Meta>("/meta").then(setMeta).catch(() => undefined), 60_000);
     return () => clearInterval(t);
-  }, [loadList]);
+  }, [loadList, authEpoch]);
 
   useEffect(() => {
     if (!route.id) {
@@ -172,6 +180,31 @@ export default function App() {
       <div className="fatal">
         <h1>msts-trader Studio</h1>
         <p>{fatal}</p>
+        {needToken && (
+          <form
+            className="btn-row"
+            style={{ marginTop: 12, maxWidth: 420 }}
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (!tokenInput.trim()) return;
+              setToken(tokenInput);
+              setTokenInput("");
+              setAuthEpoch((n) => n + 1);
+            }}
+          >
+            <input
+              type="password"
+              autoComplete="off"
+              placeholder="Paste access token (?t=… or MSTS_UI_TOKEN)"
+              aria-label="Access token"
+              value={tokenInput}
+              onChange={(e) => setTokenInput(e.target.value)}
+            />
+            <button type="submit" className="btn primary" disabled={!tokenInput.trim()}>
+              Unlock
+            </button>
+          </form>
+        )}
       </div>
     );
   }
@@ -211,7 +244,7 @@ export default function App() {
           )}
         </nav>
         <button className="btn ghost small settings-btn" onClick={() => setModal("settings")}>
-          ⚙ Notifications
+          ⚙ Notifications &amp; Auth
         </button>
         <div className={`market market-${meta?.market.status ?? "unknown"}`}>
           <span className="dot" /> Market {meta?.market.status ?? "…"}
@@ -302,7 +335,16 @@ export default function App() {
                 />
               )}
               {route.tab === "deploy" && (
-                <DeployPanel key={saved.id} draft={draft} saved={saved} dirty={dirty} meta={meta} onDeploy={(deploy) => setDraft({ ...draft, deploy })} onSave={save} />
+                <DeployPanel
+                  key={saved.id}
+                  draft={draft}
+                  saved={saved}
+                  dirty={dirty}
+                  meta={meta}
+                  onDeploy={(deploy) => setDraft({ ...draft, deploy })}
+                  onSave={save}
+                  onOpenSettings={() => setModal("settings")}
+                />
               )}
             </div>
           </>

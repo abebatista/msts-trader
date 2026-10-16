@@ -13,12 +13,13 @@ type Props = {
   meta: Meta | null;
   onDeploy: (d: Deploy) => void;
   onSave: () => Promise<void>;
+  onOpenSettings?: () => void;
 };
 
 const money = (s: string | number | null | undefined) =>
   s == null ? "–" : `$${Number(s).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-export function DeployPanel({ draft, saved, dirty, meta, onDeploy, onSave }: Props) {
+export function DeployPanel({ draft, saved, dirty, meta, onDeploy, onSave, onOpenSettings }: Props) {
   const d = draft.deploy;
   const set = (patch: Partial<Deploy>) => onDeploy({ ...d, ...patch });
   const [runs, setRuns] = useState<RunEntry[]>([]);
@@ -119,6 +120,14 @@ export function DeployPanel({ draft, saved, dirty, meta, onDeploy, onSave }: Pro
                   </option>
                 ))}
               </select>
+              {d.broker === "schwab" && onOpenSettings && (
+                <span className="muted small">
+                  Schwab refresh tokens expire every 7 days.{" "}
+                  <button type="button" className="btn ghost small" onClick={onOpenSettings}>
+                    Refresh Schwab OAuth token…
+                  </button>
+                </span>
+              )}
             </label>
             <label>
               Account <span className="muted small">(optional: full number or last 4)</span>
