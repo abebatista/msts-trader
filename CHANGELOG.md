@@ -10,6 +10,26 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+## [0.47.1] — 2026-10-16
+
+### Added
+- Studio: automatic post-close settlement of pending sleeve orders (such as
+  market-on-close orders after the 16:00 ET closing auction, or 13:00 ET on
+  early-close days), plus a **Check orders** button directly inside the
+  *N order(s) still working at the broker* banner on the Deploy tab.
+
+### Fixed
+- IBKR: `order_status()` now reads `order.filledQuantity` and `trade.fills`
+  (as well as `ib.fills()`) for cross-session completed orders such as MOC
+  fills after the close. `ib_insync`'s `completedOrder` callback leaves
+  `orderStatus.filled` and `orderStatus.avgFillPrice` at `0.0`, which caused
+  MOC orders settled in a later connection to report zero fill or stay stuck as
+  `UNKNOWN` after a TWS/Gateway daily reset.
+- Sleeve ledger: pending orders on socket brokers (IBKR) whose broker-side
+  order history rolled over across a daily reset are now reconciled against the
+  live account position and cleared during `rebalance` and `sleeve reconcile`,
+  so stale *"N order(s) still working at the broker"* banners no longer persist.
+
 ## [0.47.0] — 2026-10-16
 
 ### Added
@@ -1773,7 +1793,8 @@ was folded into this release; no 0.3.1 was published to PyPI).
 - Credentials stored in the OS keychain (BYO Tastytrade OAuth app).
 - OIDC trusted publishing to PyPI on tag push.
 
-[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.47.0...HEAD
+[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.47.1...HEAD
+[0.47.1]: https://github.com/markudevelop/msts-trader/compare/v0.47.0...v0.47.1
 [0.47.0]: https://github.com/markudevelop/msts-trader/compare/v0.46.1...v0.47.0
 [0.46.1]: https://github.com/markudevelop/msts-trader/compare/v0.46.0...v0.46.1
 [0.46.0]: https://github.com/markudevelop/msts-trader/compare/v0.45.1...v0.46.0

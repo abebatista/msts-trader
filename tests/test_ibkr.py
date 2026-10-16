@@ -274,3 +274,55 @@ def test_ensure_event_loop_keeps_existing_loop():
     finally:
         existing.close()
         asyncio.set_event_loop(None)
+
+
+def test_order_status_reads_completed_order_filled_quantity_and_fills():
+    """ib_insync's Wrapper.completedOrder constructs OrderStatus(status='Filled')
+    with filled=0.0 and avgFillPrice=0.0; the real fill lives on
+    order.filledQuantity and trade.fills."""
+    from msts_trader.chase import FILLED
+
+    completed_trade = SimpleNamespace(
+        order=SimpleNamespace(permId=555001, orderId=0, filledQuantity=181.0, totalQuantity=181.0),
+        orderStatus=SimpleNamespace(status="Filled", filled=0.0, remaining=0.0, avgFillPrice=0.0),
+        fills=[
+            SimpleNamespace(execution=SimpleNamespace(permId=555001, orderId=4, shares=181.0, price=22.50, execId="e1"))
+        ],
+    )
+    b = _ibkr()
+    b._ib.trades = lambda: [completed_trade]
+    st = b.order_status("555001")
+    assert st["status"] == FILLED
+    assert st["filled_qty"] == 181.0
+    assert st["filled_avg_price"] == 22.50
+    # Matching by execution.orderId also works when order_id was recorded before permId arrived.
+    st_by_oid = b.order_status("4")
+    assert st_by_oid["status"] == FILLED and st_by_oid["filled_qty"] == 181.0
+
+
+def test_order_status_ignores_unset_double_and_falls_back_to_standalone_fills():
+    from msts_trader.chase import FILLED, UNKNOWN
+
+    # UNSET_DOUBLE (1.7976931348623157e+308) on order.filledQuantity must not leak through _f().
+    t = SimpleNamespace(
+        order=SimpleNamespace(permId=777, orderId=0, filledQuantity=1.7976931348623157e308, totalQuantity=25.0),
+        orderStatus=SimpleNamespace(status="Filled", filled=0.0, remaining=0.0, avgFillPrice=0.0),
+        fills=[],
+    )
+    b = _ibkr()
+    b._ib.trades = lambda: [t]
+    st = b.order_status("777")
+    assert st["status"] == FILLED and st["filled_qty"] == 25.0
+
+    # Standalone fills fallback when trades() has no matching Trade object.
+    b2 = _ibkr()
+    b2._ib.trades = lambda: []
+    b2._ib.fills = lambda: [
+        SimpleNamespace(execution=SimpleNamespace(permId=888, orderId=9, shares=10.0, price=100.0, execId="x1"))
+    ]
+    st2 = b2.order_status("888")
+    assert st2["status"] == FILLED and st2["filled_qty"] == 10.0 and st2["filled_avg_price"] == 100.0
+
+    # Truly absent order returns not_found=True.
+    st3 = b2.order_status("999999")
+    assert st3["status"] == UNKNOWN and st3.get("not_found") is True

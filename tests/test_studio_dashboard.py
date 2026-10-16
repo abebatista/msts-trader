@@ -655,3 +655,36 @@ def test_price_refresh_failure_never_fails_the_run(client, monkeypatch):
     store.save(s)
     client.post("/api/strategies/momo/capital", json={"action": "invest", "amount": "10000"}, headers=H())
     assert runner.run(s, mode="live")["status"] == "executed"
+
+
+def test_settle_due_waits_for_close_on_same_day_moc_then_settles(monkeypatch):
+    from decimal import Decimal
+
+    from msts_trader import sleeves
+    from msts_trader.symphony import runner
+
+    s = make_sym(schedule_enabled=True, schedule_time="15:30")
+    s.deploy.order_type = "moc"
+    store.save(s)
+
+    tue_1530 = datetime(2026, 9, 29, 15, 30, tzinfo=ET)
+    led = sleeves.Ledger(broker="paper", account="PAPER")
+    sleeves.invest(led, s.id, Decimal("10000"))
+    sleeves.record_order(led, s.id, order_id="o1", ticker="SPY", side="BUY", requested=Decimal("10"), moc=True)
+    led.pending[0]["ts"] = int(tue_1530.timestamp())
+    sleeves.save(led)
+
+    # At 15:45 ET (before the 16:00 closing auction + 5 min), same-day MOC is not due to settle yet.
+    assert sched.settle_due(s, datetime(2026, 9, 29, 15, 45, tzinfo=ET)) is False
+    # At 16:06 ET (after the closing auction), it IS due to settle.
+    tue_1606 = datetime(2026, 9, 29, 16, 6, tzinfo=ET)
+    assert sched.settle_due(s, tue_1606) is True
+    assert sched.anything_due(tue_1606) is True
+    # Next morning at 05:48 ET (if still pending), it is also due to settle.
+    wed_0548 = datetime(2026, 9, 30, 5, 48, tzinfo=ET)
+    assert sched.settle_due(s, wed_0548) is True
+
+    settled_calls = []
+    monkeypatch.setattr(runner, "settle_sleeve", lambda sym: settled_calls.append(sym.id) or {"status": "settled"})
+    sched.Scheduler().tick(tue_1606)
+    assert settled_calls == [s.id]

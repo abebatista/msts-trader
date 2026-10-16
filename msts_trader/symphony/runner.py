@@ -313,3 +313,37 @@ def _run_target(sym: Symphony, entry: dict, target: dict, *, mode: str, force: b
     if mode == LIVE and entry.get("status") in ("executed", "partial"):
         snapshot(sym, event="cash" if not target else "run")
     return store.log_run(entry)
+
+
+def settle_sleeve(sym: Symphony) -> dict:
+    """Settle pending sleeve orders at the broker (e.g. MOC orders after the
+    closing auction) and snapshot the sleeve if anything settled."""
+    from .performance import _pick, sleeve_ledgers, snapshot
+
+    before = _pick(sleeve_ledgers(sym.id, sym.deploy.broker), sym.deploy.account)
+    before_pending = len((before or {}).get("pending") or [])
+    cmd = [sys.executable, "-m", "msts_trader", "sleeve", "reconcile", "--broker", sym.deploy.broker]
+    if sym.deploy.account:
+        cmd += ["--account", sym.deploy.account]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", timeout=120, env=_subprocess_env())
+    except subprocess.TimeoutExpired:
+        return {"strategy": sym.id, "status": "error", "error": "sleeve reconcile timed out"}
+    after = _pick(sleeve_ledgers(sym.id, sym.deploy.broker), sym.deploy.account)
+    after_pending = len((after or {}).get("pending") or [])
+    settled = max(0, before_pending - after_pending)
+    changed = before != after and (
+        settled > 0
+        or (before or {}).get("holdings") != (after or {}).get("holdings")
+        or (before or {}).get("cash") != (after or {}).get("cash")
+    )
+    if changed:
+        snapshot(sym, event="settle")
+        warm_prices(sym)
+    return {
+        "strategy": sym.id,
+        "status": "settled" if after_pending == 0 else "pending",
+        "settled": settled,
+        "pending": after_pending,
+        "ok": proc.returncode == 0,
+    }

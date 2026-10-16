@@ -44,7 +44,8 @@ def sleeve_ledgers(sid: str, broker: str) -> list[dict]:
         book = (data.get("sleeves") or {}).get(sid)
         cash = (data.get("cash") or {}).get(sid)
         policy = (data.get("policy") or {}).get(sid)
-        if book is None and cash is None and policy is None:
+        pending = [x for x in data.get("pending") or [] if x.get("sleeve") == sid]
+        if book is None and cash is None and policy is None and not pending:
             continue
         out.append(
             {
@@ -52,7 +53,7 @@ def sleeve_ledgers(sid: str, broker: str) -> list[dict]:
                 "cash": cash,
                 "contributed": (data.get("contributed") or {}).get(sid),
                 "holdings": {t: q for t, q in sorted((book or {}).items()) if Decimal(q) != 0},
-                "pending": [x for x in data.get("pending") or [] if x.get("sleeve") == sid],
+                "pending": pending,
                 "policy": policy or {},
             }
         )

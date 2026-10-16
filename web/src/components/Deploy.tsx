@@ -500,6 +500,20 @@ function Capital({
       setBusy(false);
     }
   };
+  const checkOrders = async () => {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api<{ ok: boolean; output: string; sleeve: SleeveLedger[] }>(`/strategies/${sid}/sleeve-tool`, {
+        body: { action: "reconcile" },
+      });
+      onChange(r.sleeve);
+    } catch (e) {
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
   const valid = Number(amount) > 0;
   return (
     <section className="card-plain">
@@ -534,7 +548,14 @@ function Capital({
                 </span>
               ))}
             </div>
-            {l.pending.length > 0 && <div className="alert warn small">{l.pending.length} order(s) still working at the broker</div>}
+            {l.pending.length > 0 && (
+              <div className="alert warn small" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                <span>{l.pending.length} order(s) still working at the broker</span>
+                <button className="btn ghost small" disabled={busy || disabled} onClick={checkOrders}>
+                  {busy ? "Checking…" : "Check orders"}
+                </button>
+              </div>
+            )}
           </div>
         ))
       )}
