@@ -1,0 +1,23 @@
+services:
+  studio:
+    build: .
+    container_name: msts-studio
+    restart: unless-stopped
+    ports:
+      # Bind 127.0.0.1:8765:8765 when placing an HTTPS reverse proxy (Caddy/Nginx)
+      # or SSH tunnel in front, or 8765:8765 when firewalling/exposing directly.
+      - "${MSTS_BIND_IP:-0.0.0.0}:${MSTS_UI_PORT:-8765}:8765"
+    environment:
+      MSTS_UI_HOST: "0.0.0.0"
+      MSTS_UI_PORT: "8765"
+      # Optional fixed token (>=16 chars) so container restarts keep the same login URL/token:
+      MSTS_UI_TOKEN: "${MSTS_UI_TOKEN:-}"
+      # Optional public origin(s), comma-separated (e.g. https://studio.example.com):
+      MSTS_UI_ORIGIN: "${MSTS_UI_ORIGIN:-}"
+      MSTS_KEYCHAIN_FILE: "/root/.msts-trader/keychain.json"
+      MSTS_SCHWAB_MANUAL: "1"
+    volumes:
+      - msts_data:/root/.msts-trader
+
+volumes:
+  msts_data:

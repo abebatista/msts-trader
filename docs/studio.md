@@ -303,20 +303,55 @@ For unattended trading without the UI running, use cron or GitHub Actions:
 50 15 * * 1-5  msts-trader strategy run my-strategy --yes   # TZ=America/New_York
 ```
 
-## Security model
+## Security model & remote access (VPS / Docker)
 
 The server can place orders, so:
 
-- It binds `127.0.0.1` only.
-- Every `/api` call needs the random per-process token from the startup URL
-  (`?t=…`, moved to `sessionStorage` on load). Other web pages can make your
-  browser send requests to localhost, but they can't read or guess the token.
+- By default it binds `127.0.0.1` only.
+- Every `/api` call needs the session token (`?t=…` on the startup URL, or pasted into the Studio unlock prompt; stored in `sessionStorage` on load). Other web pages can make your browser send requests to localhost, but they can't read or guess the token.
 - Requests with a foreign `Origin` header are refused.
-- Live runs need the per-strategy opt-in **and** the typed confirmation.
-  Both are enforced server-side, not just in the UI.
+- Live runs need the per-strategy opt-in **and** the typed confirmation. Both are enforced server-side, not just in the UI.
 
-Keep the startup URL private. Anyone who has it can drive the UI while the
-process runs.
+Keep the startup URL / access token private. Anyone who has it can drive the UI while the process runs.
+
+### Running on a Linux VPS or Docker container
+
+When running Studio on a headless Linux VPS or inside Docker, no local GUI or browser is required on the server:
+
+```bash
+# Quick start with Docker Compose
+MSTS_UI_TOKEN="your-secret-token-at-least-16-chars" docker compose up -d
+```
+
+Or directly via the CLI:
+
+```bash
+msts-trader ui --host 0.0.0.0 --port 8765 --token "your-secret-token-at-least-16-chars" --no-browser
+```
+
+| Option / Env | Purpose |
+|---|---|
+| `--host` / `MSTS_UI_HOST` | Bind address (`127.0.0.1` default; use `0.0.0.0` inside Docker or on a VPS). |
+| `--port` / `MSTS_UI_PORT` | Listen port (`8765` default). |
+| `--token` / `MSTS_UI_TOKEN` | Fixed access token (≥ 16 characters) so container/VPS restarts keep the same login token. |
+| `--origin` / `MSTS_UI_ORIGIN` | Additional allowed `Origin` URL(s) (comma-separated in env) when behind a reverse proxy, e.g. `https://studio.example.com`. |
+| `MSTS_KEYCHAIN_FILE` | Optional path for the `0600` JSON keychain fallback (automatic on headless Linux / Docker when no OS keyring daemon is present; defaults to `~/.msts-trader/keychain.json`). |
+
+**Exposing the UI over the internet:** always put TLS in front of `--host 0.0.0.0` (e.g. Caddy, Nginx + Let's Encrypt, Cloudflare Tunnel, or Tailscale) so your `MSTS_UI_TOKEN` is never sent in cleartext HTTP. Open `https://your-domain.example/?t=<MSTS_UI_TOKEN>` or paste the token into the Studio unlock prompt.
+
+### Refreshing the 7-day Schwab OAuth token on a headless VPS
+
+Schwab's OAuth login requires a full JavaScript browser with 2FA, so text-mode CLI browsers (`lynx`, `w3m`) will not work — and you **do not need a browser on the VPS at all**. You can authorize in your normal desktop or phone browser in either of two ways:
+
+1. **Directly in the Studio web UI:** open **⚙ Notifications & Auth → Schwab OAuth (7-day token)** (or click **Refresh Schwab OAuth token…** on a Schwab strategy's Deploy tab):
+   - Click **1. Generate Schwab login link**, then **2. Open Schwab login ↗**.
+   - Sign in and approve on `schwab.com` in your own browser.
+   - Your browser redirects to `https://127.0.0.1:8182/?code=…` (showing a normal *"site can't be reached"* page if nothing is listening locally). Copy that full URL from your browser's address bar, paste it into step **3** in Studio, and click **Complete login**.
+2. **From the CLI (`--manual`):**
+   ```bash
+   msts-trader login --broker schwab --reauth --manual
+   ```
+   Open the printed authorization URL in any browser, approve, and paste the resulting `https://127.0.0.1:8182/?code=…` redirect URL back into the terminal prompt (`Redirect URL>`). (On headless Linux without a browser, `msts-trader login --broker schwab` falls back to this manual prompt automatically.)
 
 ## Importing pnlportfolio.com books
 

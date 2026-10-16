@@ -102,19 +102,48 @@ def _cli(args: list[str], timeout: int = 120) -> dict:
     return {"ok": proc.returncode == 0, "output": text[-2000:]}
 
 
-def create_app(token: str, *, allowed_origins: set[str] | None = None, static_dir: Path = STATIC_DIR) -> FastAPI:
+MIN_TOKEN_LEN = 16
+
+
+def _origin_allowed(request: Request, origin: str, allowed_origins: set[str], allow_same_host: bool) -> bool:
+    norm = origin.strip().rstrip("/")
+    if norm in allowed_origins or origin in allowed_origins:
+        return True
+    if not allow_same_host:
+        return False
+    from urllib.parse import urlparse
+
+    parsed = urlparse(norm)
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return False
+    origin_host = parsed.netloc.lower()
+    req_host = (request.headers.get("host") or "").strip().lower()
+    fwd_host = (request.headers.get("x-forwarded-host") or "").split(",")[0].strip().lower()
+    return origin_host in {h for h in (req_host, fwd_host) if h}
+
+
+def create_app(
+    token: str,
+    *,
+    allowed_origins: set[str] | None = None,
+    allow_same_host_origin: bool = False,
+    static_dir: Path = STATIC_DIR,
+) -> FastAPI:
     app = FastAPI(title="msts-trader studio", version=__version__, docs_url=None, redoc_url=None, openapi_url=None)
-    allowed_origins = set(allowed_origins or ())
-    dev_origin = os.environ.get("MSTS_UI_DEV_ORIGIN")
-    if dev_origin:
-        allowed_origins.add(dev_origin)
+    allowed_origins = {o.strip().rstrip("/") for o in (allowed_origins or ()) if o and o.strip()}
+    for env_key in ("MSTS_UI_DEV_ORIGIN", "MSTS_UI_ORIGIN"):
+        raw_env = os.environ.get(env_key, "")
+        for part in raw_env.split(","):
+            if part.strip():
+                allowed_origins.add(part.strip().rstrip("/"))
     run_lock = threading.Lock()
+    app.state.schwab_pending_auth = None
 
     @app.middleware("http")
     async def guard(request: Request, call_next):
         if request.url.path.startswith("/api/"):
             origin = request.headers.get("origin")
-            if origin and origin not in allowed_origins:
+            if origin and not _origin_allowed(request, origin, allowed_origins, allow_same_host_origin):
                 return JSONResponse({"detail": "cross-origin request refused"}, status_code=403)
             got = request.headers.get(TOKEN_HEADER, "")
             if not secrets.compare_digest(got, token):
@@ -758,6 +787,88 @@ def create_app(token: str, *, allowed_origins: set[str] | None = None, static_di
         sent, failed = studio_meta.send("msts-trader Studio · test notification ✓")
         return {"sent": sent, "failed": failed}
 
+    # ── Schwab web OAuth (headless VPS / Docker 7-day token refresh) ─
+    @app.get("/api/brokers/schwab")
+    def schwab_status():
+        from ..brokers import schwab
+
+        return schwab.token_status()
+
+    @app.post("/api/brokers/schwab/auth/start")
+    def schwab_auth_start(
+        app_key: str | None = Body(None),
+        app_secret: str | None = Body(None),
+        callback_url: str | None = Body(None),
+        account: str | None = Body(None),
+    ):
+        from ..brokers import schwab
+        from ..brokers.base import BrokerError
+
+        stored = schwab.stored_or_env_creds()
+        key = (app_key or "").strip() or stored["app_key"]
+        secret = (app_secret or "").strip() or stored["app_secret"]
+        cb = (callback_url or "").strip() or stored["callback_url"] or schwab.Schwab.DEFAULT_CALLBACK_URL
+        acct = (account or "").strip() or stored["account_hash"] or None
+        if not key or not secret:
+            _bad(422, "enter your Schwab app key and app secret (or configure SCHWAB_APP_KEY / SCHWAB_APP_SECRET)")
+        try:
+            ctx = schwab.start_web_auth(key, cb)
+        except BrokerError as e:
+            _bad(422, str(e))
+        app.state.schwab_pending_auth = {
+            "app_key": key,
+            "app_secret": secret,
+            "callback_url": ctx["callback_url"],
+            "state": ctx["state"],
+            "account_hash": acct,
+        }
+        return {
+            "authorization_url": ctx["authorization_url"],
+            "callback_url": ctx["callback_url"],
+        }
+
+    @app.post("/api/brokers/schwab/auth/complete")
+    def schwab_auth_complete(redirect_url: str = Body(..., embed=True)):
+        from .. import keychain
+        from ..brokers import schwab
+        from ..brokers.base import BrokerError
+
+        pending = getattr(app.state, "schwab_pending_auth", None)
+        if not pending:
+            _bad(422, "start Schwab authorization first to generate an authorization link")
+        try:
+            b = schwab.complete_web_auth(
+                app_key=pending["app_key"],
+                app_secret=pending["app_secret"],
+                callback_url=pending["callback_url"],
+                state=pending["state"],
+                received_url=redirect_url,
+                account_hash=pending["account_hash"],
+            )
+            bal = b.balances()
+        except Exception as e:
+            msg = str(e) if isinstance(e, BrokerError) else f"Schwab authorization failed: {e}"
+            _bad(422, msg)
+        keychain.save(
+            "schwab",
+            {
+                "app_key": pending["app_key"],
+                "app_secret": pending["app_secret"],
+                "callback_url": pending["callback_url"],
+                "account_hash": b.account_hash,
+            },
+        )
+        if not keychain.get_default():
+            keychain.set_default("schwab")
+        app.state.schwab_pending_auth = None
+        return {
+            "ok": True,
+            "account_id": b.account_id,
+            "account_hash": b.account_hash,
+            "nav": str(bal.nav),
+            **schwab.token_status(),
+        }
+
     # ── OS task: run schedules without Studio open ───────────────────
     @app.get("/api/os-schedule")
     def os_schedule_status():
@@ -803,21 +914,48 @@ def create_app(token: str, *, allowed_origins: set[str] | None = None, static_di
     return app
 
 
-def serve(*, port: int = 8765, open_browser: bool = True, scheduler: bool = True) -> None:
+def serve(
+    *,
+    host: str = "127.0.0.1",
+    port: int = 8765,
+    open_browser: bool = True,
+    scheduler: bool = True,
+    token: str | None = None,
+    origins: tuple[str, ...] | list[str] = (),
+) -> None:
     import uvicorn
 
-    token = secrets.token_urlsafe(24)
-    origins = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
-    app = create_app(token, allowed_origins=origins)
+    host = (host or "127.0.0.1").strip()
+    if token is not None:
+        token = token.strip()
+        if len(token) < MIN_TOKEN_LEN:
+            raise ValueError(f"--token / MSTS_UI_TOKEN must be at least {MIN_TOKEN_LEN} characters")
+    else:
+        token = secrets.token_urlsafe(24)
+
+    is_loopback = host in ("127.0.0.1", "localhost", "::1")
+    allowed = {f"http://127.0.0.1:{port}", f"http://localhost:{port}"}
+    for o in origins:
+        for part in str(o).split(","):
+            if part.strip():
+                allowed.add(part.strip().rstrip("/"))
+    app = create_app(token, allowed_origins=allowed, allow_same_host_origin=not is_loopback)
     if scheduler:
         from .scheduler import Scheduler
 
         app.state.scheduler = Scheduler()
         app.state.scheduler.start()
-    url = f"http://127.0.0.1:{port}/?t={token}"
+    display_host = "127.0.0.1" if host in ("0.0.0.0", "::") else host
+    url = f"http://{display_host}:{port}/?t={token}"
     print(
         f"msts-trader studio → {url}\n(keep this URL private: it carries the session token; Ctrl+C to stop)", flush=True
     )
-    if open_browser:
+    if not is_loopback:
+        print(
+            f"Note: listening on {host}:{port}. When exposing Studio over the internet, "
+            "place it behind an HTTPS reverse proxy (Caddy / Nginx / Cloudflare Tunnel) or Tailscale.",
+            flush=True,
+        )
+    if open_browser and is_loopback:
         threading.Timer(1.0, lambda: webbrowser.open(url)).start()
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    uvicorn.run(app, host=host, port=port, log_level="warning")

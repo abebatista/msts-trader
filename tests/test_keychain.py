@@ -86,3 +86,39 @@ def test_list_brokers_returns_configured_only():
     keychain.save("tastytrade", {"provider_secret": "x", "refresh_token": "y", "account_id": ""})
     out = sorted(keychain.list_brokers())
     assert out == ["paper", "tastytrade"]
+
+
+def test_headless_fallback_when_no_os_keyring(tmp_path, monkeypatch):
+    """On headless Linux VPS / Docker containers where keyring raises NoKeyringError,
+    keychain transparently falls back to ~/.msts-trader/keychain.json."""
+    from msts_trader import keychain
+
+    fallback = tmp_path / "keychain.json"
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))
+    monkeypatch.setattr(keychain, "_fallback_path", lambda: fallback)
+
+    def fail_keyring(*args, **kwargs):
+        raise keyring.errors.NoKeyringError("no secretservice daemon in container")
+
+    monkeypatch.setattr(keyring, "get_password", fail_keyring)
+    monkeypatch.setattr(keyring, "set_password", fail_keyring)
+    monkeypatch.setattr(keyring, "delete_password", fail_keyring)
+
+    keychain.save("schwab", {"app_key": "k", "app_secret": "s"})
+    keychain.save_secret("schwab_oauth_token", '{"token": "t"}')
+    keychain.set_default("schwab")
+
+    assert fallback.exists()
+    assert keychain.load("schwab") == {"app_key": "k", "app_secret": "s"}
+    assert keychain.load_secret("schwab_oauth_token") == '{"token": "t"}'
+    assert keychain.get_default() == "schwab"
+    assert keychain.list_brokers() == ["schwab"]
+
+    keychain.clear_secret("schwab_oauth_token")
+    keychain.clear("schwab")
+    keychain.clear_default()
+    assert keychain.load_secret("schwab_oauth_token") is None
+    assert keychain.get_default() is None
+    with pytest.raises(keychain.CredsMissingError):
+        keychain.load("schwab")

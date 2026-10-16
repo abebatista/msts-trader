@@ -24,7 +24,17 @@ function readToken(): string {
   }
 }
 
-const token = readToken();
+let token = readToken();
+
+export function setToken(next: string) {
+  token = next.trim();
+  try {
+    if (token) sessionStorage.setItem(KEY, token);
+    else sessionStorage.removeItem(KEY);
+  } catch {
+    /* storage blocked: keep it in memory only */
+  }
+}
 
 export class ApiError extends Error {
   status: number;

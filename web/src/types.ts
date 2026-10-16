@@ -326,6 +326,18 @@ export interface StudioSettings {
   has_telegram_token: boolean;
 }
 
+export interface SchwabStatus {
+  sdk_installed: boolean;
+  has_creds: boolean;
+  callback_url: string;
+  account_hash: string | null;
+  has_token: boolean;
+  creation_timestamp: number | null;
+  age_seconds: number | null;
+  expires_in_seconds: number | null;
+  expired: boolean;
+}
+
 export interface OsSchedule {
   supported: boolean;
   installed: boolean;

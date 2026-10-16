@@ -31,6 +31,8 @@ from __future__ import annotations
 
 import json
 import os
+import time
+import webbrowser
 from decimal import Decimal
 from pathlib import Path
 from typing import Iterable
@@ -40,7 +42,14 @@ from ..models import Order, Position, Side
 from .base import Balances, BrokerError, LinkedAccount, first_present, resolve_linked_account
 
 try:
-    from schwab.auth import client_from_access_functions, client_from_login_flow  # type: ignore
+    from schwab.auth import (  # type: ignore
+        AuthContext,
+        client_from_access_functions,
+        client_from_login_flow,
+        client_from_manual_flow,
+        client_from_received_url,
+        get_auth_context,
+    )
     from schwab.orders.equities import (  # type: ignore
         equity_buy_limit,
         equity_buy_market,
@@ -55,6 +64,11 @@ except ImportError:
 TOKEN_KEY = "schwab_oauth_token"
 TOKEN_PATH = Path(os.path.expanduser("~/.msts-trader/schwab_token.json"))  # legacy plaintext cache
 TOKEN_MAX_AGE_SECONDS = int(60 * 60 * 24 * 6.5)
+
+
+def _env_manual() -> bool:
+    raw = os.environ.get("MSTS_SCHWAB_MANUAL", "").strip().lower()
+    return raw in {"1", "true", "yes", "manual"}
 
 
 class Schwab:
@@ -78,6 +92,7 @@ class Schwab:
         callback_url: str = DEFAULT_CALLBACK_URL,
         account_hash: str | None = None,
         account_id: str | None = None,
+        manual: bool = False,
     ):
         if not _SCHWAB_OK:
             raise BrokerError("schwab-py not installed. Run: pip install schwab-py")
@@ -87,10 +102,7 @@ class Schwab:
         # positions() fail on the first real call.
         client = _client_from_stored_token(app_key, app_secret)
         if client is None:
-            # client_from_login_flow opens a browser and runs the local callback
-            # listener. token_path is retained only for schwab-py's messages;
-            # token_write_func keeps the durable token in the OS keychain.
-            self._client = client_from_login_flow(
+            flow_kwargs = dict(
                 api_key=app_key,
                 app_secret=app_secret,
                 callback_url=callback_url,
@@ -98,6 +110,16 @@ class Schwab:
                 token_write_func=_write_token,
                 enforce_enums=False,
             )
+            if manual or _env_manual():
+                self._client = client_from_manual_flow(**flow_kwargs)
+            else:
+                try:
+                    # client_from_login_flow opens a browser and runs the local callback
+                    # listener. If no browser exists (headless VPS / Docker), fall back
+                    # to the manual copy-paste redirect URL flow.
+                    self._client = client_from_login_flow(**flow_kwargs)
+                except webbrowser.Error:
+                    self._client = client_from_manual_flow(**flow_kwargs)
             _delete_legacy_token_file()
         else:
             self._client = client
@@ -493,3 +515,102 @@ def clear_token() -> None:
         TOKEN_PATH.unlink()
     except FileNotFoundError:
         pass
+
+
+def stored_or_env_creds() -> dict:
+    """Return stored keychain or env Schwab credentials (never raises)."""
+    from ..creds_file import broker_kwargs_from_env
+
+    env_creds = broker_kwargs_from_env("schwab") or {}
+    try:
+        stored = keychain.load("schwab")
+    except keychain.CredsMissingError:
+        stored = {}
+    return {
+        "app_key": env_creds.get("app_key") or stored.get("app_key") or "",
+        "app_secret": env_creds.get("app_secret") or stored.get("app_secret") or "",
+        "callback_url": env_creds.get("callback_url") or stored.get("callback_url") or Schwab.DEFAULT_CALLBACK_URL,
+        "account_hash": env_creds.get("account_hash") or stored.get("account_hash") or None,
+    }
+
+
+def token_status() -> dict:
+    """Safe summary of Schwab credentials and 7-day OAuth token state (no secrets)."""
+    creds = stored_or_env_creds()
+    try:
+        tok = _load_stored_token()
+    except BrokerError:
+        tok = None
+    created = tok.get("creation_timestamp") if isinstance(tok, dict) else None
+    age: int | None = None
+    expires_in: int | None = None
+    expired = False
+    if isinstance(created, (int, float)) and created > 0:
+        age = max(0, int(time.time() - float(created)))
+        expires_in = max(0, int(7 * 86400 - age))
+        expired = TOKEN_MAX_AGE_SECONDS > 0 and age >= TOKEN_MAX_AGE_SECONDS
+    return {
+        "sdk_installed": _SCHWAB_OK,
+        "has_creds": bool(creds["app_key"] and creds["app_secret"]),
+        "callback_url": creds["callback_url"],
+        "account_hash": creds["account_hash"],
+        "has_token": bool(tok),
+        "creation_timestamp": int(created) if isinstance(created, (int, float)) else None,
+        "age_seconds": age,
+        "expires_in_seconds": expires_in,
+        "expired": expired,
+    }
+
+
+def start_web_auth(app_key: str, callback_url: str = Schwab.DEFAULT_CALLBACK_URL) -> dict:
+    """Create a Schwab OAuth authorization URL + state for browser copy-paste re-auth."""
+    if not _SCHWAB_OK:
+        raise BrokerError('schwab-py not installed. Run: pip install "msts-trader[schwab]"')
+    app_key = app_key.strip()
+    callback_url = callback_url.strip() or Schwab.DEFAULT_CALLBACK_URL
+    if not app_key:
+        raise BrokerError("Schwab app key is required")
+    ctx = get_auth_context(app_key, callback_url)
+    return {
+        "callback_url": ctx.callback_url,
+        "authorization_url": ctx.authorization_url,
+        "state": ctx.state,
+    }
+
+
+def complete_web_auth(
+    *,
+    app_key: str,
+    app_secret: str,
+    callback_url: str,
+    state: str,
+    received_url: str,
+    account_hash: str | None = None,
+) -> Schwab:
+    """Exchange a pasted callback redirect URL for a 7-day Schwab OAuth token and verify the account."""
+    if not _SCHWAB_OK:
+        raise BrokerError('schwab-py not installed. Run: pip install "msts-trader[schwab]"')
+    url = received_url.strip()
+    if not url.lower().startswith(("http://", "https://")) or "code=" not in url:
+        raise BrokerError(
+            "paste the full redirect URL from your browser's address bar (e.g. https://127.0.0.1:8182/?code=…&session=…)"
+        )
+    ctx = AuthContext(callback_url, "", state)
+    try:
+        client_from_received_url(
+            api_key=app_key,
+            app_secret=app_secret,
+            auth_context=ctx,
+            received_url=url,
+            token_write_func=_write_token,
+            enforce_enums=False,
+        )
+    except Exception as e:
+        raise BrokerError(f"Schwab token exchange failed: {e}") from e
+    _delete_legacy_token_file()
+    return Schwab(
+        app_key=app_key,
+        app_secret=app_secret,
+        callback_url=callback_url,
+        account_hash=account_hash,
+    )
