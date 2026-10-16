@@ -1565,7 +1565,7 @@ def rebalance(
         ctx.call_on_close(lambda: _slock.__exit__(None, None, None))
         # Settle in-flight orders from previous runs (resting remainders, MOC
         # fills from the close) BEFORE anything is sized this run.
-        settled = sleeves.settle_pending(ledger, b)
+        settled = sleeves.settle_pending(ledger, b, positions=pos)
         if settled:
             sleeves.save(ledger)
             for n in settled:
@@ -2006,6 +2006,7 @@ def _record_sleeve_fills(broker, ledger, sleeve_name: str, orders, results) -> N
                 side=o.side.value,
                 requested=Decimal(str(leg["quantity"])),
                 est_price=o.estimated_price,
+                moc=bool(getattr(o, "moc", False)),
             )
     for n in sleeves.settle_pending(ledger, broker):
         say(f"[dim]sleeve: {escape(n)}[/dim]")
@@ -3238,7 +3239,7 @@ def sleeve_reconcile(ctx, broker_opt, creds_file, account_sel) -> None:
     pos = retry.with_retry(b.positions)
     with sleeves.lock(b.name, b.account_id):
         ledger = _sleeve_ledger_or_exit(b)
-        for n in sleeves.settle_pending(ledger, b):
+        for n in sleeves.settle_pending(ledger, b, positions=pos):
             say(f"[dim]{escape(n)}[/dim]")
         sleeves.save(ledger)
     claims = ledger.claims()

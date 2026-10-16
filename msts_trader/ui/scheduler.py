@@ -89,6 +89,59 @@ def due(s: Symphony, now: datetime) -> bool:
     return last_scheduled_period(s) != period_key(today, s.rebalance)
 
 
+def settle_due(s: Symphony, now: datetime) -> bool:
+    """True when `s`'s sleeve has in-flight orders ready to check at the broker.
+
+    MOC orders fill in the closing auction, so an MOC order placed today waits
+    until 5 minutes after today's close (`16:05 ET`, or `13:05 ET` on an early
+    close) before polling. Orders from a prior day (or non-MOC orders) are
+    checked right away, throttled by `RETRY_AFTER` via `last_checked` on the
+    pending entry so a resting order doesn't poll the broker every tick.
+    Reads the sleeve JSON directly — no pandas import — so `run-due` stays fast.
+    """
+    import json
+
+    from .. import sleeves
+
+    if not sleeves.LEDGER_DIR.exists():
+        return False
+    now = now.astimezone(ET)
+    today = now.date()
+    now_ts = now.timestamp()
+    retry_s = RETRY_AFTER.total_seconds()
+    pending: list[dict] = []
+    for p in sorted(sleeves.LEDGER_DIR.glob(f"{s.deploy.broker}_*.json")):
+        try:
+            data = json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        acct = str(data.get("account") or "")
+        if s.deploy.account and acct != s.deploy.account and not acct.endswith(s.deploy.account):
+            continue
+        entries = [x for x in (data.get("pending") or []) if x.get("sleeve") == s.id]
+        if entries:
+            pending = entries
+            break
+    if not pending:
+        return False
+
+    if all(now_ts - float(x.get("last_checked") or 0) < retry_s for x in pending):
+        return False
+
+    is_moc = s.deploy.order_type == "moc" or any(x.get("moc") for x in pending)
+    if is_moc and not (is_weekend(today) or is_holiday(today)):
+        close_settle = datetime.combine(today, close_time_for(today), tzinfo=ET) + timedelta(minutes=5)
+        if now < close_settle:
+            placed_dates = {
+                datetime.fromtimestamp(float(x["ts"]), tz=ET).date() for x in pending if x.get("ts") is not None
+            }
+            if placed_dates and placed_dates == {today}:
+                return False
+            if not placed_dates and now >= run_time(s, today):
+                return False
+    return True
+
+
 def tz_status() -> dict:
     """Clock facts for the UI: the machine's zone vs the market's."""
     local = datetime.now().astimezone()
@@ -102,11 +155,12 @@ def tz_status() -> dict:
 
 
 def anything_due(now: datetime | None = None) -> bool:
-    """Cheap pre-check for the every-minute OS task: is any strategy due, or the
-    weekly digest? Reads strategy files and the run log only — no pandas, no
-    engine — so a no-op check exits fast."""
+    """Cheap pre-check for the every-minute OS task: is any strategy due, any
+    pending order ready to settle, or the weekly digest? Reads strategy/sleeve
+    files and the run log only — no pandas, no engine — so a no-op check exits fast."""
     now = (now or datetime.now(ET)).astimezone(ET)
-    if any(due(s, now) for s in store.list_all()):
+    strategies = store.list_all()
+    if any(due(s, now) or settle_due(s, now) for s in strategies):
         return True
     from ..symphony import studio_meta
 
@@ -176,7 +230,8 @@ class Scheduler:
         from ..symphony import runner
 
         results = []
-        for s in store.list_all():
+        strategies = store.list_all()
+        for s in strategies:
             if not due(s, now) or now < self._retry_at.get(s.id, now):
                 continue
             mode = runner.LIVE if s.deploy.live_enabled else runner.DRY
@@ -197,6 +252,16 @@ class Scheduler:
                 )
             finally:
                 self.running_now = None
+
+        for s in strategies:
+            settle_key = f"settle:{s.id}"
+            if not settle_due(s, now) or now < self._retry_at.get(settle_key, now):
+                continue
+            self._retry_at[settle_key] = now + RETRY_AFTER
+            try:
+                runner.settle_sleeve(s)
+            except Exception as e:
+                self.last_error = f"{s.id}: {e}"
         return results
 
     def _loop(self) -> None:

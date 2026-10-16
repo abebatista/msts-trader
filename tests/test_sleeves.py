@@ -1204,3 +1204,68 @@ def test_show_names_other_ledgers_when_sleeve_absent_on_that_broker(paper_env, t
     r = runner.invoke(main, ["sleeve", "show", "onlyalpaca", "--broker", "paper"])
     assert r.exit_code != 0
     assert "no ledger on paper" in r.output and "alpaca" in r.output
+
+
+def test_settle_pending_reconciles_stale_not_found_orders_against_positions():
+    """When a socket broker (IBKR after TWS daily reset) reports not_found=True
+    for pending MOC orders, settle_pending reconciles unrecorded fills against
+    the live account position and clears stale pending entries without
+    double-counting shares that were already adjusted."""
+    led = sleeves.Ledger(broker="ibkr", account="U1")
+    sleeves.invest(led, "quad", Decimal("10000"))
+    # Pre-existing holdings: 50 TLT (which MOC sold) and 181 DBC (already adjusted).
+    sleeves.apply_fill(led, "quad", "TLT", "BUY", Decimal("50"))
+    sleeves.apply_fill(led, "quad", "DBC", "BUY", Decimal("181"))
+    # Three pending MOC orders from yesterday:
+    # 1) BUY 10 SPY (filled at close -> account now holds 10 SPY)
+    # 2) SELL 50 TLT (filled at close -> account now holds 0 TLT)
+    # 3) BUY 181 DBC (already in tally; account holds 181 DBC -> must NOT double-count)
+    sleeves.record_order(
+        led,
+        "quad",
+        order_id="101",
+        ticker="SPY",
+        side="BUY",
+        requested=Decimal("10"),
+        est_price=Decimal("500"),
+        moc=True,
+    )
+    sleeves.record_order(
+        led,
+        "quad",
+        order_id="102",
+        ticker="TLT",
+        side="SELL",
+        requested=Decimal("50"),
+        est_price=Decimal("90"),
+        moc=True,
+    )
+    sleeves.record_order(
+        led,
+        "quad",
+        order_id="103",
+        ticker="DBC",
+        side="BUY",
+        requested=Decimal("181"),
+        est_price=Decimal("22"),
+        moc=True,
+    )
+
+    class _StaleIbkr:
+        name = "ibkr"
+        account_id = "U1"
+
+        def order_status(self, oid):
+            return {"status": "unknown", "filled_qty": 0.0, "filled_avg_price": None, "not_found": True}
+
+    pos = {
+        "SPY": Position("SPY", Decimal("10"), Decimal("500")),
+        "DBC": Position("DBC", Decimal("181"), Decimal("22")),
+    }
+    notes = sleeves.settle_pending(led, _StaleIbkr(), positions=pos)
+    assert led.pending == []
+    assert led.tally("quad", "SPY") == Decimal("10")
+    assert led.tally("quad", "TLT") == Decimal("0")
+    assert led.tally("quad", "DBC") == Decimal("181")  # not doubled to 362
+    assert led.cash["quad"] == Decimal("10000") - Decimal("5000") + Decimal("4500")
+    assert len(notes) == 3

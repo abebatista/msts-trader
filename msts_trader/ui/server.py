@@ -534,8 +534,10 @@ def create_app(
         if s.deploy.account:
             args += ["--account", s.deploy.account]
         res = _cli(args)
-        if res["ok"] and action in ("adopt", "release", "adjust"):
+        if res["ok"] and action in ("adopt", "release", "adjust", "reconcile"):
             performance.snapshot(s, event=action)
+            if action == "reconcile":
+                runner.warm_prices(s)
         # A failed reconcile still printed its table (the negative residuals
         # are the point), so failures come back as data, not an HTTP error.
         return {**res, "sleeve": _sleeve_state(s.id, s.deploy.broker)}

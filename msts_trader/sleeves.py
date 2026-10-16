@@ -241,41 +241,82 @@ def record_order(
     side: str,
     requested: Decimal,
     est_price: Decimal | None = None,
+    moc: bool = False,
 ) -> None:
     """Register a just-placed order as pending. Fills are applied only by
     settle_pending — never here (intent is not a fill). est_price is the
     cash-accounting fallback for brokers whose order_status carries no
     filled_avg_price."""
-    ledger.pending.append(
-        {
-            "order_id": str(order_id),
-            "sleeve": sleeve,
-            "ticker": ticker.upper(),
-            "side": side.upper(),
-            "requested": str(requested),
-            "recorded_fill": "0",
-            "recorded_cost": "0",
-            "est_price": str(est_price) if est_price else None,
-        }
+    entry: dict = {
+        "order_id": str(order_id),
+        "sleeve": sleeve,
+        "ticker": ticker.upper(),
+        "side": side.upper(),
+        "requested": str(requested),
+        "recorded_fill": "0",
+        "recorded_cost": "0",
+        "est_price": str(est_price) if est_price else None,
+        "ts": int(_time.time()),
+    }
+    if moc:
+        entry["moc"] = True
+    ledger.pending.append(entry)
+
+
+def _apply_cash_fill(
+    ledger: Ledger,
+    entry: dict,
+    filled: Decimal,
+    avg_price,
+    fallback_price: Decimal | None = None,
+) -> None:
+    if not ledger.cash_tracked(entry["sleeve"]):
+        return
+    px = (
+        Decimal(str(avg_price))
+        if avg_price
+        else (Decimal(entry["est_price"]) if entry.get("est_price") else fallback_price)
     )
+    if px is not None and px > 0:
+        total_cost = filled * px
+        delta_cost = total_cost - Decimal(entry.get("recorded_cost", "0"))
+        entry["recorded_cost"] = str(total_cost)
+        sl = entry["sleeve"]
+        if entry["side"] == "BUY":
+            ledger.cash[sl] = ledger.cash[sl] - delta_cost
+        else:
+            ledger.cash[sl] = ledger.cash[sl] + delta_cost
 
 
-def settle_pending(ledger: Ledger, broker) -> list[str]:
+def settle_pending(
+    ledger: Ledger,
+    broker,
+    positions: dict[str, Position] | None = None,
+) -> list[str]:
     """Poll order_status for every pending order and apply NEW fills.
 
     Idempotent via the recorded_fill cursor: only ``filled - recorded`` is
     applied, so a re-poll (or a run that crashed after applying) never
     double-counts. Terminal orders are dropped; anything else (resting, MOC
     awaiting the close, a flaky UNKNOWN read) stays pending for the next run.
+    When ``positions`` is provided and a socket broker (e.g. IBKR after a
+    daily TWS reset) reports ``not_found=True`` (no longer in open, completed,
+    or execution tables), any unrecorded fill is reconciled against the live
+    account position and the stale pending entry is cleared.
     Returns human-readable notes for anything that changed.
     """
     notes: list[str] = []
     still: list[dict] = []
+    stale: list[dict] = []
+    now_ts = int(_time.time())
     for entry in ledger.pending:
         try:
             st = broker.order_status(entry["order_id"])
         except Exception:
             still.append(entry)  # can't read -> keep, retry next run
+            continue
+        if st.get("not_found") and positions is not None:
+            stale.append(entry)
             continue
         status = str(st.get("status", "")).lower()
         requested = Decimal(entry["requested"])
@@ -293,21 +334,41 @@ def settle_pending(ledger: Ledger, broker) -> list[str]:
             # (filled * avg) - recorded_cost is exact across partial fills at
             # different prices; est_price is the fallback for adapters whose
             # order_status has no average (e.g. hyperliquid).
-            if ledger.cash_tracked(entry["sleeve"]):
-                avg = st.get("filled_avg_price")
-                px = Decimal(str(avg)) if avg else (Decimal(entry["est_price"]) if entry.get("est_price") else None)
-                if px is not None and px > 0:
-                    total_cost = filled * px
-                    delta_cost = total_cost - Decimal(entry.get("recorded_cost", "0"))
-                    entry["recorded_cost"] = str(total_cost)
-                    sl = entry["sleeve"]
-                    if entry["side"] == "BUY":
-                        ledger.cash[sl] = ledger.cash[sl] - delta_cost
-                    else:
-                        ledger.cash[sl] = ledger.cash[sl] + delta_cost
+            _apply_cash_fill(ledger, entry, filled, st.get("filled_avg_price"))
             notes.append(f"{entry['sleeve']}: {entry['ticker']} {entry['side']} settled {delta} (order {status})")
         if status not in _TERMINAL:
+            entry["last_checked"] = now_ts
             still.append(entry)
+
+    # Pass 2: orders confirmed no longer at the broker (e.g. IBKR DAY/MOC
+    # orders from a prior TWS session whose completed-orders table rolled over).
+    for entry in stale:
+        tkr = entry["ticker"].upper()
+        side = entry["side"].upper()
+        requested = Decimal(entry["requested"])
+        recorded = Decimal(entry["recorded_fill"])
+        rem = max(Decimal(0), requested - recorded)
+        held = positions[tkr].quantity if positions and tkr in positions else Decimal(0)
+        claimed = ledger.claims().get(tkr, Decimal(0))
+        if side == "BUY":
+            inferred = min(rem, max(Decimal(0), held - claimed))
+        else:
+            inferred = min(rem, max(Decimal(0), claimed - held))
+        if inferred > 0:
+            apply_fill(ledger, entry["sleeve"], tkr, side, inferred)
+            filled = recorded + inferred
+            entry["recorded_fill"] = str(filled)
+            pos_px = positions[tkr].price if positions and tkr in positions else None
+            _apply_cash_fill(ledger, entry, filled, None, fallback_price=pos_px)
+            notes.append(
+                f"{entry['sleeve']}: {tkr} {side} settled {inferred} from account position "
+                f"(order {entry['order_id']} no longer at broker)"
+            )
+        else:
+            notes.append(
+                f"{entry['sleeve']}: {tkr} {side} cleared stale order {entry['order_id']} (no longer working at broker)"
+            )
+
     ledger.pending = still
     return notes
 

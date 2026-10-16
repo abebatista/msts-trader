@@ -288,10 +288,16 @@ class IBKR:
         except Exception as e:
             return {"status": "error", "reason": str(e), "ticker": order.ticker}
 
-        # Give IBKR ~2s to acknowledge; full fills usually arrive later.
+        # Give IBKR ~2s to acknowledge and assign a permanent permId; full fills usually arrive later.
         for _ in range(20):
             self._ib.sleep(0.1)
-            if trade.orderStatus.status in {"Filled", "Submitted", "PreSubmitted", "ApiCancelled", "Cancelled"}:
+            st_now = getattr(trade.orderStatus, "status", "")
+            has_perm = bool(
+                _clean_id(getattr(trade.order, "permId", None)) or _clean_id(getattr(trade.orderStatus, "permId", None))
+            )
+            if st_now in {"Filled", "ApiCancelled", "Cancelled", "Inactive"}:
+                break
+            if st_now in {"Submitted", "PreSubmitted"} and has_perm:
                 break
 
         status = str(trade.orderStatus.status or "submitted")
@@ -301,7 +307,7 @@ class IBKR:
             "side": order.side.value,
             "quantity": qty,
             "moc": order.moc,
-            "order_id": str(getattr(trade.order, "permId", "") or getattr(trade.order, "orderId", "")) or None,
+            "order_id": _trade_order_id(trade),
             "dry_run": False,
         }
 
@@ -343,14 +349,13 @@ class IBKR:
             return {"status": "error", "reason": str(e), "ticker": order.ticker, "order_live": order.extended_hours}
         for _ in range(20):
             self._ib.sleep(0.1)
-            if trade.orderStatus.status in {
-                "Filled",
-                "Submitted",
-                "PreSubmitted",
-                "ApiCancelled",
-                "Cancelled",
-                "Inactive",
-            }:
+            st_now = getattr(trade.orderStatus, "status", "")
+            has_perm = bool(
+                _clean_id(getattr(trade.order, "permId", None)) or _clean_id(getattr(trade.orderStatus, "permId", None))
+            )
+            if st_now in {"Filled", "ApiCancelled", "Cancelled", "Inactive"}:
+                break
+            if st_now in {"Submitted", "PreSubmitted"} and has_perm:
                 break
         status = str(trade.orderStatus.status or "submitted")
         result = {
@@ -358,7 +363,7 @@ class IBKR:
             "ticker": order.ticker,
             "side": order.side.value,
             "quantity": qty,
-            "order_id": str(getattr(trade.order, "permId", "") or getattr(trade.order, "orderId", "")) or None,
+            "order_id": _trade_order_id(trade),
             "limit_price": px,
             "dry_run": False,
         }
@@ -371,20 +376,90 @@ class IBKR:
     def order_status(self, order_id) -> dict:
         from ..chase import CANCELLED, FILLED, PARTIAL, REJECTED, UNKNOWN, WORKING
 
-        oid = str(order_id)
-        trade = None
-        for t in self._ib.trades():
-            o = t.order
-            if oid in (str(getattr(o, "permId", "") or ""), str(getattr(o, "orderId", "") or "")):
-                trade = t
-                break
+        oid = str(order_id).strip()
+
+        def _match_trade():
+            for t in self._ib.trades():
+                o = getattr(t, "order", None)
+                os_ = getattr(t, "orderStatus", None)
+                ids = {
+                    _clean_id(getattr(o, "permId", None)),
+                    _clean_id(getattr(o, "orderId", None)),
+                    _clean_id(getattr(os_, "permId", None)),
+                    _clean_id(getattr(os_, "orderId", None)),
+                }
+                for f in getattr(t, "fills", None) or []:
+                    ex = getattr(f, "execution", None)
+                    ids.add(_clean_id(getattr(ex, "permId", None)))
+                    ids.add(_clean_id(getattr(ex, "orderId", None)))
+                ids.discard(None)
+                if oid in ids:
+                    return t
+            return None
+
+        trade = _match_trade()
+        if trade is None and not getattr(self, "_synced_all_orders", False):
+            self._synced_all_orders = True
+            for fn_name, args in (("reqAllOpenOrders", ()), ("reqCompletedOrders", (False,))):
+                fn = getattr(self._ib, fn_name, None)
+                if callable(fn):
+                    try:
+                        fn(*args)
+                    except Exception:
+                        pass
+            trade = _match_trade()
+
         if trade is None:
-            return {"status": UNKNOWN, "filled_qty": 0.0, "filled_avg_price": None}
+            # Check standalone fills (reqExecutions) in case TWS returned executions
+            # without a matching Trade entry.
+            fills_fn = getattr(self._ib, "fills", None)
+            raw_fills = fills_fn() if callable(fills_fn) else []
+            matched_fills = []
+            seen_exec = set()
+            for f in raw_fills or []:
+                ex = getattr(f, "execution", None)
+                if ex is None:
+                    continue
+                if oid in {_clean_id(getattr(ex, "permId", None)), _clean_id(getattr(ex, "orderId", None))}:
+                    eid = getattr(ex, "execId", None) or id(f)
+                    if eid not in seen_exec:
+                        seen_exec.add(eid)
+                        matched_fills.append(ex)
+            if matched_fills:
+                tot_q = sum((_f(getattr(ex, "shares", 0)) or 0.0) for ex in matched_fills)
+                tot_c = sum(
+                    (_f(getattr(ex, "shares", 0)) or 0.0) * (_f(getattr(ex, "price", 0)) or 0.0) for ex in matched_fills
+                )
+                avg = (tot_c / tot_q) if tot_q > 0 else None
+                return {"status": FILLED, "filled_qty": tot_q, "filled_avg_price": avg if avg and avg > 0 else None}
+            return {"status": UNKNOWN, "filled_qty": 0.0, "filled_avg_price": None, "not_found": True}
+
         os_ = trade.orderStatus
+        o = getattr(trade, "order", None)
         raw = str(getattr(os_, "status", "") or "")
-        filled = _f(getattr(os_, "filled", 0)) or 0.0
+        # ib_insync's Wrapper.completedOrder constructs OrderStatus(status=...)
+        # with filled=0.0 and avgFillPrice=0.0; the real fill quantity on a
+        # cross-session completed order (e.g. an MOC order after the close) lives
+        # on order.filledQuantity and/or trade.fills.
+        os_filled = _f(getattr(os_, "filled", 0)) or 0.0
+        order_filled = _f(getattr(o, "filledQuantity", None)) or 0.0
+        fills_qty = 0.0
+        fills_cost = 0.0
+        for f in getattr(trade, "fills", None) or []:
+            ex = getattr(f, "execution", None)
+            if ex is None:
+                continue
+            q = _f(getattr(ex, "shares", 0)) or 0.0
+            p = _f(getattr(ex, "price", 0)) or _f(getattr(ex, "avgPrice", 0)) or 0.0
+            fills_qty += q
+            fills_cost += q * p
+        filled = max(os_filled, order_filled, fills_qty)
+        if raw == "Filled" and filled <= 0:
+            filled = _f(getattr(o, "totalQuantity", 0)) or 0.0
         remaining = _f(getattr(os_, "remaining", 0)) or 0.0
         avg = _f(getattr(os_, "avgFillPrice", None))
+        if (not avg or avg <= 0) and fills_qty > 0 and fills_cost > 0:
+            avg = fills_cost / fills_qty
         if raw == "Filled":
             status = FILLED
         elif raw in ("Cancelled", "ApiCancelled"):
@@ -451,6 +526,26 @@ class IBKR:
         return {"status": "error", "reason": "order not found", "order_id": order_id}
 
 
+def _clean_id(val) -> str | None:
+    if val is None:
+        return None
+    s = str(val).strip()
+    if not s or s in ("0", "2147483647"):
+        return None
+    return s
+
+
+def _trade_order_id(trade) -> str | None:
+    o = getattr(trade, "order", None)
+    os_ = getattr(trade, "orderStatus", None)
+    return (
+        _clean_id(getattr(o, "permId", None))
+        or _clean_id(getattr(os_, "permId", None))
+        or _clean_id(getattr(o, "orderId", None))
+        or _clean_id(getattr(os_, "orderId", None))
+    )
+
+
 def _reject_reason(trade) -> str | None:
     """Extract the meaningful rejection message from an ib_insync trade log.
 
@@ -482,9 +577,9 @@ def _f(v) -> float | None:
     try:
         if v is None:
             return None
-        # ib_insync returns nan for missing fields
+        # ib_insync returns nan or UNSET_DOUBLE (1.7976931348623157e+308) for missing fields
         x = float(v)
-        if x != x:  # NaN
+        if x != x or abs(x) >= 1e100:  # NaN, inf, or UNSET_DOUBLE
             return None
         return x
     except Exception:
