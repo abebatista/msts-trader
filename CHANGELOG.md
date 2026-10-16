@@ -10,6 +10,32 @@ behaviour changes; patch versions (0.x.y) are fixes and docs.
 
 ## [Unreleased]
 
+## [0.47.0] — 2026-10-16
+
+### Added
+- Studio: in-page **Schwab OAuth** panel in Settings (and a shortcut button on
+  Deploy when Schwab is selected) to complete or refresh the 7-day Schwab OAuth
+  token from your desktop browser without a browser on the server: click **Generate
+  Schwab Login Link**, sign in on Schwab in a tab, and paste the redirected
+  `https://127.0.0.1:8182/?code=...` URL back into Studio. Also shows live token
+  expiry status. New endpoints `GET /api/brokers/schwab`,
+  `POST /api/brokers/schwab/auth/start`, and
+  `POST /api/brokers/schwab/auth/complete`.
+- Studio: remote / VPS hosting options on `msts-trader ui`: `--host`
+  (`MSTS_UI_HOST`), `--port` (`MSTS_UI_PORT`), `--token` (`MSTS_UI_TOKEN`,
+  required when binding a non-loopback address), and `--origin`
+  (`MSTS_UI_ORIGIN`). Includes a token sign-in prompt in the web UI when
+  `--token` is enabled and same-host Origin validation behind reverse proxies.
+- `msts-trader login --broker schwab --manual` (or `MSTS_SCHWAB_MANUAL=1`):
+  prints the Schwab authorization URL and prompts for the redirected callback
+  URL, and automatically falls back to the manual flow on headless hosts with no
+  graphical browser.
+- File-backed keychain fallback (`~/.msts-trader/keychain.json`, `0600`
+  permissions) when the OS has no `keyring` SecretService/D-Bus backend
+  (Docker, minimal Linux VPS) or when `MSTS_KEYCHAIN_FILE` is set.
+- `Dockerfile` and `docker-compose.yml` for running MSTS Studio in a Linux
+  container with persistent state under `/data/.msts-trader`.
+
 ## [0.46.1] — 2026-10-15
 
 ### Fixed
@@ -1747,7 +1773,8 @@ was folded into this release; no 0.3.1 was published to PyPI).
 - Credentials stored in the OS keychain (BYO Tastytrade OAuth app).
 - OIDC trusted publishing to PyPI on tag push.
 
-[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.46.1...HEAD
+[Unreleased]: https://github.com/markudevelop/msts-trader/compare/v0.47.0...HEAD
+[0.47.0]: https://github.com/markudevelop/msts-trader/compare/v0.46.1...v0.47.0
 [0.46.1]: https://github.com/markudevelop/msts-trader/compare/v0.46.0...v0.46.1
 [0.46.0]: https://github.com/markudevelop/msts-trader/compare/v0.45.1...v0.46.0
 [0.45.1]: https://github.com/markudevelop/msts-trader/compare/v0.45.0...v0.45.1
